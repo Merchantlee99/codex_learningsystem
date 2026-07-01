@@ -1,0 +1,40 @@
+{
+  "name": "codex-learning-system",
+  "version": "0.2.0",
+  "description": "Codex-native CBT learning plugin with SQLite study tracking, wrong-note reports, and optional Notion sync planning.",
+  "author": {
+    "name": "Sanginn Lee",
+    "url": "https://github.com/Merchantlee99"
+  },
+  "homepage": "https://github.com/Merchantlee99/26_codex_learningsystem",
+  "repository": "https://github.com/Merchantlee99/26_codex_learningsystem",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "learning-system",
+    "cbt",
+    "sqlite",
+    "notion"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Codex Learning System",
+    "shortDescription": "Run CBT-style study sessions inside Codex.",
+    "longDescription": "A local-first Codex plugin for certification study. It runs CBT-style sessions, records answers in SQLite, generates wrong-note reports, and prepares optional Notion sync plans without exposing personal study records by default.",
+    "developerName": "Sanginn Lee",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Analyze"
+    ],
+    "defaultPrompt": [
+      "Start a SQLD 20-question CBT session.",
+      "Finish my study session and summarize misses.",
+      "Prepare a Notion wrong-note sync plan."
+    ],
+    "brandColor": "#2563EB"
+  }
+}
+

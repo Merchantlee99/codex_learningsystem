@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "mode": "agent-mediated",
+  "study_sessions_database": {
+    "name": "Study Sessions",
+    "data_source_id": ""
+  },
+  "wrong_questions_database": {
+    "name": "Wrong Questions",
+    "data_source_id": ""
+  },
+  "concept_reviews_database": {
+    "name": "Concept Reviews",
+    "data_source_id": ""
+  },
+  "notes": [
+    "Public default is disabled. Set CERT_STUDY_ENABLE_NOTION_SYNC=1 only in a private/local environment.",
+    "The local plugin prepares the sync plan. Codex should perform actual Notion MCP writes after the user chooses the target databases."
+  ]
+}
+

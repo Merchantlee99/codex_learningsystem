@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from cert_study.db import connect, initialize
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
+from cert_study.mcp_server import call_tool, handle_message
+from cert_study.notion_sync import prepare_notion_sync_plan
 from cert_study.reporting import write_session_report
 from cert_study.seed_sqld import seed as seed_sqld
 
@@ -80,6 +83,40 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("## 오늘 복습할 개념", report)
         self.assertTrue((Path(self.tmp.name) / "notion_exports" / f"{first.session_id}.md").exists())
 
+    def test_notion_sync_plan_is_disabled_by_default(self) -> None:
+        first = create_session(self.conn, exam_id="SQLD", count=5, mode="custom-cbt", seed=3)
+        current = get_next_unanswered(self.conn, first.session_id)
+        self.assertIsNotNone(current)
+        correct = correct_answer_for(self.conn, current.question_id)
+        submit_answer(self.conn, first.session_id, 2 if correct != 2 else 1)
+        answer_all_with_correct_answers(self.conn, first.session_id)
+        finish_session(self.conn, first.session_id)
+
+        os.environ.pop("CERT_STUDY_ENABLE_NOTION_SYNC", None)
+        plan = prepare_notion_sync_plan(self.conn, first.session_id)
+
+        self.assertFalse(plan["enabled"])
+        self.assertEqual(plan["status"], "disabled_public_default")
+        self.assertGreaterEqual(len(plan["actions"]), 2)
+
+    def test_plugin_manifest_declares_skill_and_mcp(self) -> None:
+        manifest = json.loads((Path(__file__).resolve().parents[1] / ".codex-plugin" / "plugin.json").read_text())
+        self.assertEqual(manifest["name"], "codex-learning-system")
+        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertEqual(manifest["mcpServers"], "./.mcp.json")
+
+    def test_mcp_tools_list_and_start_session(self) -> None:
+        tools_response = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
+        self.assertIn("start_session", tool_names)
+        self.assertIn("prepare_notion_sync", tool_names)
+
+        call_tool("init_study_db", {})
+        result = call_tool("start_session", {"exam": "SQLD", "count": 5, "seed": 4})
+        text = result["content"][0]["text"]
+        self.assertIn("session_id:", text)
+        self.assertIn("[1/5]", text)
+
 
 def correct_answer_for(conn, question_id: str) -> int:
     return conn.execute("SELECT answer FROM questions WHERE id = ?", (question_id,)).fetchone()["answer"]
@@ -95,4 +132,3 @@ def answer_all_with_correct_answers(conn, session_id: str) -> None:
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -2,6 +2,12 @@
 
 Use Notion as the readable notebook, not the source of truth. SQLite remains the canonical study record.
 
+The public plugin default is disabled. It only prepares a Notion sync plan until the user chooses target databases and enables:
+
+```bash
+export CERT_STUDY_ENABLE_NOTION_SYNC=1
+```
+
 ## Database 1: Study Sessions
 
 One row per CBT session.
@@ -125,10 +131,11 @@ Recommended `Status` values:
 
 At session finish:
 
-1. Create one `Study Sessions` page.
-2. Append the Markdown report to the page body.
-3. Create one `Wrong Questions` row for each wrong question.
-4. Create or update `Concept Reviews` for repeated weak concepts.
+1. Generate a sync plan with `prepare_notion_sync` or `python3 -m cert_study notion plan <session_id>`.
+2. If the plan status is `disabled_public_default`, show it to the user and do not write to Notion.
+3. After the user selects databases and enables sync, create one `Study Sessions` page.
+4. Append the Markdown report to the page body.
+5. Create one `Wrong Questions` row for each wrong question.
+6. Create or update `Concept Reviews` for repeated weak concepts.
 
 Do not make Notion calculate scoring. Keep scoring in SQLite and export final values to Notion.
-

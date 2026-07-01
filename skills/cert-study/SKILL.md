@@ -1,6 +1,6 @@
 ---
 name: cert-study
-description: Run Codex-native CBT study sessions for certification exams with SQLite tracking, detailed wrong-note reports, and Notion-ready exports.
+description: Run Codex-native CBT study sessions for certification exams with SQLite tracking, detailed wrong-note reports, and disabled-by-default Notion sync planning.
 ---
 
 # Cert Study Skill
@@ -16,13 +16,23 @@ Act as:
 - wrong-note writer
 - review scheduler
 
-The chat window is the exam interface. The local CLI is the state engine.
+The chat window is the exam interface. The plugin MCP tools are the preferred state engine. The local CLI is a fallback and debugging surface.
 
 ## First Supported Exam
 
 SQLD is the first implemented exam.
 
-Supported commands:
+Preferred MCP tools:
+
+```text
+init_study_db
+start_session
+submit_answer
+finish_session
+prepare_notion_sync
+```
+
+Fallback CLI commands:
 
 ```bash
 python3 -m cert_study init
@@ -31,11 +41,12 @@ python3 -m cert_study session start --exam SQLD --regular
 python3 -m cert_study session answer <session_id> <1-4>
 python3 -m cert_study session current <session_id>
 python3 -m cert_study session finish <session_id>
+python3 -m cert_study notion plan <session_id>
 ```
 
 ## Session Procedure
 
-1. If `data/study.sqlite` is missing, run:
+1. If the local DB is missing, call `init_study_db` or run:
 
    ```bash
    python3 -m cert_study init
@@ -43,13 +54,13 @@ python3 -m cert_study session finish <session_id>
 
 2. When the user says `SQLD 문제 시작`, clarify only if needed:
 
-   - `SQLD 정규 모의고사` -> use `--regular`
-   - `SQLD 20문제` -> use `--count 20`
+   - `SQLD 정규 모의고사` -> start a regular session
+   - `SQLD 20문제` -> start a 20-question custom session
    - no count -> default to 20
 
 3. Show exactly one question at a time.
 
-4. When the user answers with a number, run:
+4. When the user answers with a number, call `submit_answer` or run:
 
    ```bash
    python3 -m cert_study session answer <session_id> <answer>
@@ -57,7 +68,7 @@ python3 -m cert_study session finish <session_id>
 
 5. Do not reveal correctness after every question unless the user asks for immediate feedback.
 
-6. When all questions are answered, run:
+6. When all questions are answered, call `finish_session` or run:
 
    ```bash
    python3 -m cert_study session finish <session_id>
@@ -89,13 +100,21 @@ SQLite is the source of truth. Notion is a readable notebook.
 
 When the user asks to sync Notion:
 
-1. Use the generated `notion_exports/<session_id>.md` as page body.
-2. Create or update a `Study Sessions` page for the session.
-3. Create one `Wrong Questions` row per wrong attempt.
-4. Create or update one `Concept Reviews` row per weak concept.
-5. Do not delete existing Notion pages without explicit user confirmation.
+1. First call `prepare_notion_sync` or run `python3 -m cert_study notion plan <session_id>`.
+2. If the plan status is `disabled_public_default`, show the plan and ask the user to choose/confirm Notion DB targets before any write.
+3. Use the generated `notion_exports/<session_id>.md` as page body.
+4. Create or update a `Study Sessions` page for the session.
+5. Create one `Wrong Questions` row per wrong attempt.
+6. Create or update one `Concept Reviews` row per weak concept.
+7. Do not delete existing Notion pages without explicit user confirmation.
 
 Before using Notion MCP create/update tools, fetch the target database schema first and use exact property names.
+
+Public default:
+
+- Do not write to Notion automatically.
+- `CERT_STUDY_ENABLE_NOTION_SYNC=1` is required before treating the plan as ready for Notion writes.
+- Even when enabled, actual Notion writes should be performed by Codex through the Notion MCP after the user has selected the target databases.
 
 ## Safety
 

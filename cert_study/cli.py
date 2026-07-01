@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
+from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
 from .reporting import render_question, render_session_report, write_session_report
 from .seed_sqld import seed as seed_sqld
@@ -60,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
     report = sub.add_parser("report", help="Render an existing session report.")
     report.add_argument("session_id")
     report.set_defaults(func=cmd_report)
+
+    notion = sub.add_parser("notion", help="Prepare disabled-by-default Notion sync plans.")
+    notion_sub = notion.add_subparsers(required=True)
+
+    notion_plan = notion_sub.add_parser("plan", help="Prepare a Notion sync plan for a finished session.")
+    notion_plan.add_argument("session_id")
+    notion_plan.set_defaults(func=cmd_notion_plan)
 
     return parser
 
@@ -146,8 +154,13 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_notion_plan(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        print(render_plan(prepare_notion_sync_plan(conn, args.session_id)))
+    return 0
+
+
 def ready_conn():
     if not Path(db_path()).exists():
         raise ValueError("database is missing. Run: python -m cert_study init")
     return connect()
-
