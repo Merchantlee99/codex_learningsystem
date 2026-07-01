@@ -59,6 +59,7 @@ flowchart TD
 | SQLD seed bank | `cert_study/seed_sqld.py` | synthetic SQLD 훈련 문항 50개 |
 | Codex skill | `skills/cert-study/SKILL.md` | Codex가 CBT 감독관처럼 행동하도록 하는 운영 규칙 |
 | Obsidian docs | `docs/obsidian-vault.md` | Markdown vault 구조와 privacy boundary 설명 |
+| Expansion plan | `docs/exam-expansion-plan.md` | 2~3개 이상 과목 확장 시 JSON/YAML importer로 전환하는 권장 설계 |
 | Notion schema | `docs/notion-schema.md` | 선택 동기화용 `Study Sessions`, `Wrong Questions`, `Concept Reviews` DB 설계 |
 | Harness tests | `tests/test_study_system.py` | 문제 수, 세션 진행, 채점, Obsidian export, plugin shape, Notion disabled default 검증 |
 
@@ -246,6 +247,31 @@ Optional Notion sync plan:
 python3 -m cert_study notion plan <session_id>
 ```
 
+## Adding Subjects
+
+This public repo intentionally keeps `SQLD` as the single default subject.
+
+For one extra subject, copy the current seed pattern:
+
+```text
+cert_study/seed_sqld.py
+cert_study/seed_adsp.py
+```
+
+Once two or three real subjects exist, switch to a JSON/YAML question-bank importer instead of adding more Python seed files. The planned personal catalog is:
+
+```text
+SQLD
+ADSP
+KR_INFO_PROCESSING_ENGINEER
+AWS_AI_PRACTITIONER
+AWS_CLOUD_PRACTITIONER
+AWS_SOLUTIONS_ARCHITECT_ASSOCIATE
+GCP_GENERATIVE_AI_LEADER
+```
+
+See [docs/exam-expansion-plan.md](docs/exam-expansion-plan.md) for the recommended importer design, validation rules, and public/private content boundary.
+
 ## Repository Structure
 
 ```text
@@ -266,6 +292,7 @@ config/
   notion_sync.example.json
 docs/
   architecture.md
+  exam-expansion-plan.md
   obsidian-vault.md
   notion-schema.md
 obsidian_vault/
