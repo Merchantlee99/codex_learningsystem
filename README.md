@@ -252,6 +252,7 @@ config/
   notion_sync.example.json
 docs/
   architecture.md
+  notion-cert-gallery.md
   notion-schema.md
 skills/
   cert-study/SKILL.md
@@ -269,6 +270,7 @@ Implemented:
 
 - Codex plugin manifest
 - stdio MCP tools for CBT sessions
+- certification thumbnail assets for Notion gallery cards
 - SQLD synthetic question bank
 - CBT session start/answer/current/finish commands
 - SQLite learning ledger
@@ -286,4 +288,3 @@ Not implemented yet:
 - ADsP / 정보처리기사 / AWS / GCP question banks
 - spaced repetition algorithm beyond simple next-review scheduling
 - web or mobile UI
-
