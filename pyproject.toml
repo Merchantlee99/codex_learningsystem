@@ -1,0 +1,16 @@
+[project]
+name = "codex-learning-system"
+version = "0.1.0"
+description = "Codex-native CBT study system with SQLite tracking, review reports, and Notion-ready exports."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sanginn Lee" }]
+
+[project.scripts]
+cert-study = "cert_study.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+

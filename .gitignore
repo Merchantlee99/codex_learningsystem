@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+.env
+.DS_Store
+
+# Local mutable learning state
+data/study.sqlite
+data/study.sqlite-*
+reports/sessions/*.md
+notion_exports/*.md
+*.tmp
+
+!reports/sessions/.gitkeep
+!notion_exports/.gitkeep
+
