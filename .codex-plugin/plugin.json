@@ -1,6 +1,6 @@
 {
   "name": "codex-learning-system",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Codex 대화창에서 CBT 학습을 진행하고 SQLite 기록, 오답 리포트, 선택적 Notion 동기화 계획을 다루는 로컬 학습 플러그인. 현재 공개 합성 문제은행 과목은 SQLD, ADsP, 정보처리기사입니다.",
   "author": {
     "name": "Sanginn Lee",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "코덱스 학습 시스템",
     "shortDescription": "Codex 안에서 CBT 방식 학습 세션을 진행합니다.",
-    "longDescription": "자격증 공부를 위한 로컬 우선 Codex 플러그인입니다. CBT 세션을 진행하고, 답변을 SQLite에 기록하고, 오답 리포트를 만들고, 필요할 때만 Notion 동기화 계획을 준비합니다. 현재 공개 repo에는 SQLD, ADsP, 정보처리기사 공식 범위 기반 합성 문제은행을 포함하며, 공개 seed는 데모 1회분 수준입니다. 실전 학습은 개인 로컬 private_banks importer로 확장하고, 엔진은 미풀이/약점/복습 우선 출제를 지원합니다. 개인 학습 기록은 기본적으로 공개되지 않습니다.",
+    "longDescription": "자격증 공부를 위한 로컬 우선 Codex 플러그인입니다. CBT 세션을 진행하고, 답변을 SQLite에 기록하고, 오답 리포트를 만들고, 필요할 때만 Notion 동기화 계획을 준비합니다. 현재 공개 repo에는 SQLD, ADsP, 정보처리기사 공식 범위 기반 합성 문제은행을 포함하며, 공개 seed는 데모 1회분 수준입니다. 실전 학습은 개인 로컬 private_banks importer로 확장하고, 엔진은 미노출/약점/복습 우선 출제를 지원합니다. 개인 학습 기록은 기본적으로 공개되지 않습니다.",
     "developerName": "Sanginn Lee",
     "category": "Productivity",
     "capabilities": [

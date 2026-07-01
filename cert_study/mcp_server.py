@@ -50,7 +50,7 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "enum": ["custom-cbt", "review-cbt", "weak-cbt"],
                     "default": "custom-cbt",
-                    "description": "custom-cbt는 미풀이 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선입니다.",
+                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선입니다.",
                 },
                 "seed": {"type": "integer"},
             },
@@ -118,7 +118,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.3.1"},
+                "serverInfo": {"name": "cert-study", "version": "0.3.2"},
             },
         )
     if method == "tools/list":

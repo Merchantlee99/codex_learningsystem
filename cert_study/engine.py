@@ -114,9 +114,24 @@ def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: st
         """
         SELECT
           q.*,
-          COUNT(a.id) AS attempt_count,
-          COALESCE(SUM(CASE WHEN a.is_correct = 0 THEN 1 ELSE 0 END), 0) AS wrong_count,
-          MAX(a.created_at) AS last_attempt_at,
+          (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) AS attempt_count,
+          (
+            SELECT COUNT(*)
+            FROM attempts a
+            WHERE a.question_id = q.id AND a.is_correct = 0
+          ) AS wrong_count,
+          (SELECT MAX(a.created_at) FROM attempts a WHERE a.question_id = q.id) AS last_attempt_at,
+          (
+            SELECT COUNT(*)
+            FROM session_questions sq
+            WHERE sq.question_id = q.id
+          ) AS seen_count,
+          (
+            SELECT MAX(s.started_at)
+            FROM session_questions sq
+            JOIN sessions s ON s.id = sq.session_id
+            WHERE sq.question_id = q.id
+          ) AS last_seen_at,
           rq.next_review_at,
           COALESCE(rq.review_stage, 0) AS review_stage,
           COALESCE(rq.last_result, '') AS last_review_result,
@@ -128,10 +143,8 @@ def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: st
               AND ca.is_correct = 0
           ) AS concept_wrong_count
         FROM questions q
-        LEFT JOIN attempts a ON a.question_id = q.id
         LEFT JOIN review_queue rq ON rq.question_id = q.id
         WHERE q.exam_id = ? AND q.domain_id = ?
-        GROUP BY q.id
         ORDER BY q.id
         """,
         (exam_id, domain_id),
@@ -147,33 +160,36 @@ def rank_question_candidates(rows: list[sqlite3.Row], *, mode: str, rng: random.
 
 def question_priority(row: sqlite3.Row, *, mode: str) -> tuple[object, ...]:
     attempt_count = int(row["attempt_count"] or 0)
+    seen_count = int(row["seen_count"] or 0)
     wrong_count = int(row["wrong_count"] or 0)
     concept_wrong_count = int(row["concept_wrong_count"] or 0)
     review_stage = int(row["review_stage"] or 0)
     last_attempt_at = row["last_attempt_at"] or ""
+    last_seen_at = row["last_seen_at"] or ""
     due_review = bool(row["next_review_at"] and row["next_review_at"] <= today_iso())
-    recent = is_recent_attempt(last_attempt_at)
+    recent = is_recent_activity(last_seen_at or last_attempt_at)
+    last_activity_at = max(last_attempt_at, last_seen_at)
     weakness = max(wrong_count, concept_wrong_count)
 
     if mode in REVIEW_MODES:
-        bucket = review_bucket(attempt_count, weakness, due_review, recent, row["last_review_result"])
+        bucket = review_bucket(seen_count, weakness, due_review, recent, row["last_review_result"])
     elif mode in WEAK_MODES:
-        bucket = weak_bucket(attempt_count, weakness, due_review, recent)
+        bucket = weak_bucket(seen_count, weakness, due_review, recent)
     else:
-        bucket = default_bucket(attempt_count, weakness, due_review, recent)
+        bucket = default_bucket(seen_count, weakness, due_review, recent)
 
     return (
         bucket,
         -int(due_review),
         -weakness,
         -review_stage,
-        last_attempt_at or "0000-00-00T00:00:00",
+        last_activity_at or "0000-00-00T00:00:00",
         row["id"],
     )
 
 
-def default_bucket(attempt_count: int, weakness: int, due_review: bool, recent: bool) -> int:
-    if attempt_count == 0:
+def default_bucket(seen_count: int, weakness: int, due_review: bool, recent: bool) -> int:
+    if seen_count == 0:
         return 0
     if recent:
         return 4
@@ -185,7 +201,7 @@ def default_bucket(attempt_count: int, weakness: int, due_review: bool, recent: 
 
 
 def review_bucket(
-    attempt_count: int,
+    seen_count: int,
     weakness: int,
     due_review: bool,
     recent: bool,
@@ -195,31 +211,31 @@ def review_bucket(
         return 0
     if weakness > 0 and not recent:
         return 1
-    if attempt_count == 0:
+    if seen_count == 0:
         return 2
     if recent:
         return 4
     return 3
 
 
-def weak_bucket(attempt_count: int, weakness: int, due_review: bool, recent: bool) -> int:
+def weak_bucket(seen_count: int, weakness: int, due_review: bool, recent: bool) -> int:
     if weakness > 0 and not recent:
         return 0
     if due_review:
         return 1
-    if attempt_count == 0:
+    if seen_count == 0:
         return 2
     if recent:
         return 4
     return 3
 
 
-def is_recent_attempt(last_attempt_at: str) -> bool:
-    if not last_attempt_at:
+def is_recent_activity(last_activity_at: str) -> bool:
+    if not last_activity_at:
         return False
     cutoff = datetime.now() - timedelta(days=RECENT_EXCLUSION_DAYS)
     try:
-        return datetime.fromisoformat(last_attempt_at) >= cutoff
+        return datetime.fromisoformat(last_activity_at) >= cutoff
     except ValueError:
         return False
 

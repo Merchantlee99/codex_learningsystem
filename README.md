@@ -54,7 +54,7 @@ flowchart TD
 | MCP 서버 | `cert_study/mcp_server.py` | `list_exams`, `start_session`, `submit_answer`, `finish_session`, 선택적 `prepare_notion_sync` 도구 제공 |
 | CLI 진입점 | `cert_study/cli.py` | `init`, `session start`, `answer`, `finish`, `report`, 선택적 `notion plan` 명령 제공 |
 | SQLite 스키마 | `cert_study/db.py` | 시험, 도메인, 개념, 문제, 세션, 풀이, 복습 큐 저장 |
-| CBT 엔진 | `cert_study/engine.py` | 미풀이 우선 문제 선택, 약점/복습 세트, 답변 기록, 채점, 합격권 판정, 복습 큐 갱신 |
+| CBT 엔진 | `cert_study/engine.py` | 미노출 우선 문제 선택, 약점/복습 세트, 답변 기록, 채점, 합격권 판정, 복습 큐 갱신 |
 | 리포트 렌더러 | `cert_study/reporting.py` | 세션 결과와 오답노트를 Markdown으로 생성 |
 | Obsidian 내보내기 | `cert_study/obsidian.py` | 세션 노트, 개념 노트, 복습 큐 생성 |
 | Notion 동기화 하네스 | `cert_study/notion_sync.py` | 선택 기능. 기본값은 실제 쓰기 없이 계획만 생성 |
@@ -171,7 +171,7 @@ python3 -m cert_study session start --exam SQLD --count 5 --seed 1
 
 | 모드 | 기준 |
 | --- | --- |
-| `custom-cbt` | 아직 풀지 않은 문제를 먼저 출제하고, 최근에 푼 문제는 뒤로 보냄 |
+| `custom-cbt` | 아직 노출되지 않은 문제를 먼저 출제하고, 최근에 본 문제는 뒤로 보냄 |
 | `review-cbt` | 복습 예정일이 지난 오답 문제와 오답 이력이 있는 문제를 먼저 출제 |
 | `weak-cbt` | 자주 틀린 개념의 다른 문항을 먼저 출제 |
 
@@ -183,7 +183,7 @@ python3 -m cert_study session start --exam SQLD --count 5 --seed 1
 | ADsP | 50 | 250~300 | 500+ |
 | 정보처리기사 | 100 | 500~600 | 1000+ |
 
-공개 seed는 이 시스템이 작동한다는 증거입니다. 같은 문제를 외우지 않으려면 개인 문제은행을 `private_banks/`로 확장하고, 엔진의 미풀이/약점/복습 우선 출제를 활용하는 방향이 맞습니다.
+공개 seed는 이 시스템이 작동한다는 증거입니다. 같은 문제를 외우지 않으려면 개인 문제은행을 `private_banks/`로 확장하고, 엔진의 미노출/약점/복습 우선 출제를 활용하는 방향이 맞습니다.
 
 정확히 말하면, 이 프로젝트가 증명한 것은 “SQLD를 합격시켜준다”가 아닙니다. 증명한 것은 “Codex 플러그인을 개인 CBT 학습 루프의 인터페이스로 쓰고, 학습 상태와 오답 기록은 재현 가능한 로컬 하네스로 관리할 수 있다”입니다.
 
@@ -358,7 +358,7 @@ AGENTS.md
 - ADsP 합성 문제은행 50문항
 - 정보처리기사 합성 문제은행 100문항
 - 개인 JSON/YAML 문제은행 importer
-- 미풀이 우선, 복습 예정, 취약 개념 기반 출제 우선순위
+- 미노출 우선, 복습 예정, 취약 개념 기반 출제 우선순위
 - CBT 세션 시작/답변/현재 문제/종료 명령
 - SQLite 학습 원장
 - 점수와 합격선 리포트

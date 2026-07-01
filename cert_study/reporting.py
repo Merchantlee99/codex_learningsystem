@@ -66,7 +66,9 @@ def render_session_report(conn: sqlite3.Connection, session_id: str) -> str:
         f"- 판정: {session['pass_judgement']}",
     ]
     if total != session["official_question_count"]:
-        lines.append("- 참고: 커스텀 문제 수 세트이므로 과락 판정은 정규 50문항 모드에서만 정확합니다.")
+        lines.append(
+            f"- 참고: 커스텀 문제 수 세트이므로 과락 판정은 정규 {session['official_question_count']}문항 모드에서만 정확합니다."
+        )
     lines.extend(["", "## 영역별 결과"])
     for row in domain_rows:
         lines.append(f"- {row['domain']}: {row['correct']}/{row['total']} ({row['score']}점)")

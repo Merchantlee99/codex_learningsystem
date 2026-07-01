@@ -11,7 +11,7 @@ from cert_study.engine import create_session, finish_session, get_next_unanswere
 from cert_study.importer import import_bank_file
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
-from cert_study.reporting import write_session_report
+from cert_study.reporting import render_session_report, write_session_report
 from cert_study.seed_public import seed_public_banks
 
 
@@ -76,6 +76,15 @@ class StudySystemTests(unittest.TestCase):
 
         self.assertTrue(first_ids.isdisjoint(second_ids))
 
+    def test_custom_session_avoids_recently_started_unanswered_questions(self) -> None:
+        first = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=21)
+        first_ids = set(session_question_ids(self.conn, first.session_id))
+
+        second = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=21)
+        second_ids = set(session_question_ids(self.conn, second.session_id))
+
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+
     def test_review_mode_prioritizes_due_wrong_questions(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=12)
         current = get_next_unanswered(self.conn, first.session_id)
@@ -133,6 +142,22 @@ class StudySystemTests(unittest.TestCase):
         obsidian_note = session_notes[0].read_text(encoding="utf-8")
         self.assertIn("type: study-session", obsidian_note)
         self.assertIn("[[certifications/SQLD/concepts/", obsidian_note)
+
+    def test_custom_report_uses_exam_official_question_count(self) -> None:
+        first = create_session(
+            self.conn,
+            exam_id="KR_INFO_PROCESSING_ENGINEER",
+            count=5,
+            mode="custom-cbt",
+            seed=9,
+        )
+        answer_all_with_correct_answers(self.conn, first.session_id)
+        finish_session(self.conn, first.session_id)
+
+        report = render_session_report(self.conn, first.session_id)
+
+        self.assertIn("정규 100문항", report)
+        self.assertNotIn("정규 50문항", report)
 
     def test_notion_sync_plan_is_disabled_by_default(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=5, mode="custom-cbt", seed=3)
