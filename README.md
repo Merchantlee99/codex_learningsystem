@@ -329,6 +329,26 @@ python3 -m cert_study bank promote-gcp-gail --checked-at 2026-07-03
 
 `source-backed` 모드는 검수 전 문항이라도 합성 seed를 제외하고 출처가 있는 문항만 출제합니다. 정보처리기사 private 기출처럼 먼저 풀어보며 오답을 쌓고 싶은 자료는 이 모드를 씁니다.
 
+SQLD/ADsP처럼 텍스트, PDF, HTML로 정리해 둔 로컬 원천이 있다면 KDATA 계열 변환기로 먼저 점검합니다. 원천 파일과 변환 결과는 모두 ignored 된 `private_banks/` 아래에만 둡니다.
+
+```bash
+python3 -m pip install -e ".[pdf]"
+
+python3 -m cert_study bank inspect-kdata --exam SQLD private_banks/raw_sources/sqld
+python3 -m cert_study bank convert-kdata --exam SQLD \
+  private_banks/raw_sources/sqld \
+  private_banks/import_ready/sqld/sqld_source_backed.json
+python3 -m cert_study bank import private_banks/import_ready/sqld/sqld_source_backed.json --private
+python3 -m cert_study session start --exam SQLD --count 20 --mode source-backed
+
+python3 -m cert_study bank inspect-kdata --exam ADSP private_banks/raw_sources/adsp
+python3 -m cert_study bank convert-kdata --exam ADSP \
+  private_banks/raw_sources/adsp \
+  private_banks/import_ready/adsp/adsp_source_backed.json
+python3 -m cert_study bank import private_banks/import_ready/adsp/adsp_source_backed.json --private
+python3 -m cert_study session start --exam ADSP --count 20 --mode source-backed
+```
+
 정보처리기사처럼 ZIP/PDF 자료가 있는 과목은 먼저 private archive를 점검한 뒤 import-ready JSON으로 변환합니다. 이 명령은 원문 문제를 공개 repo에 저장하지 않고, ignored 된 `private_banks/` 안에서만 결과를 만듭니다.
 
 ```bash
@@ -380,6 +400,8 @@ cert_study/
   importer.py
   importers/
     gcp_gail.py
+    info_processing.py
+    kdata_text.py
   quality.py
   mcp_server.py
   notion_sync.py
@@ -427,6 +449,7 @@ AGENTS.md
 - 공식 도메인 비중 대비 문제은행 커버리지 리포트
 - GCP Generative AI Leader 로컬 자료 변환기
 - GCP Generative AI Leader 공식 문서 URL 기반 exam-ready 승격 명령
+- SQLD/ADsP private 텍스트/PDF/HTML 원천 inspector와 import-ready 변환기
 - 정보처리기사 private ZIP/PDF 후보 inspector와 import-ready 변환기
 - 합성 문항을 제외하는 `source-backed` 출제 모드
 - 미노출 우선, 복습 예정, 취약 개념 기반 출제 우선순위

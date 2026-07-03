@@ -1,6 +1,6 @@
 {
   "name": "codex-learning-system",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Codex 대화창에서 CBT 학습을 진행하고 SQLite 기록, 오답 리포트, 선택적 Notion 동기화 계획을 다루는 로컬 학습 플러그인. 현재 공개 합성 문제은행 과목은 SQLD, ADsP, 정보처리기사입니다.",
   "author": {
     "name": "Sanginn Lee",

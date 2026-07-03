@@ -1,6 +1,6 @@
 [project]
 name = "codex-learning-system"
-version = "0.3.2"
+version = "0.3.3"
 description = "Codex 안에서 CBT 학습을 진행하고 SQLite 기록과 Obsidian-ready 오답노트를 만드는 로컬 학습 시스템."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -14,6 +14,12 @@ from .importers.info_processing import (
     render_info_processing_archive_report,
     render_info_processing_convert_report,
 )
+from .importers.kdata_text import (
+    convert_kdata_text_sources,
+    inspect_kdata_text_sources,
+    render_kdata_convert_report,
+    render_kdata_inspect_report,
+)
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
 from .quality import coverage_report, promote_gcp_gail_questions, render_coverage_report
@@ -96,6 +102,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="PDF 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 90입니다.",
     )
     bank_convert_info.set_defaults(func=cmd_bank_convert_info_processing)
+
+    bank_inspect_kdata = bank_sub.add_parser(
+        "inspect-kdata",
+        help="SQLD/ADSP private 텍스트/PDF/HTML 원천의 변환 가능 문항 수를 점검합니다.",
+    )
+    bank_inspect_kdata.add_argument("--exam", required=True, choices=["SQLD", "ADSP"])
+    bank_inspect_kdata.add_argument("source", type=Path)
+    bank_inspect_kdata.set_defaults(func=cmd_bank_inspect_kdata)
+
+    bank_convert_kdata = bank_sub.add_parser(
+        "convert-kdata",
+        help="SQLD/ADSP private 텍스트/PDF/HTML 원천을 내부 CBT import-ready JSON으로 변환합니다.",
+    )
+    bank_convert_kdata.add_argument("--exam", required=True, choices=["SQLD", "ADSP"])
+    bank_convert_kdata.add_argument("source", type=Path)
+    bank_convert_kdata.add_argument("output", type=Path)
+    bank_convert_kdata.add_argument(
+        "--mark-active",
+        action="store_true",
+        help="검수 완료로 보고 exam-ready 후보가 되도록 active/current 상태로 저장합니다.",
+    )
+    bank_convert_kdata.add_argument("--checked-at", default="", help="--mark-active 사용 시 검수일. 예: 2026-07-03")
+    bank_convert_kdata.add_argument(
+        "--min-questions",
+        type=int,
+        default=1,
+        help="파일 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 1입니다.",
+    )
+    bank_convert_kdata.set_defaults(func=cmd_bank_convert_kdata)
 
     session = sub.add_parser("session", help="CBT 세션을 관리합니다.")
     session_sub = session.add_subparsers(required=True)
@@ -254,6 +289,25 @@ def cmd_bank_convert_info_processing(args: argparse.Namespace) -> int:
         min_questions=args.min_questions,
     )
     print(render_info_processing_convert_report(report))
+    return 0
+
+
+def cmd_bank_inspect_kdata(args: argparse.Namespace) -> int:
+    report = inspect_kdata_text_sources(args.source, exam_id=args.exam)
+    print(render_kdata_inspect_report(report))
+    return 0
+
+
+def cmd_bank_convert_kdata(args: argparse.Namespace) -> int:
+    report = convert_kdata_text_sources(
+        args.source,
+        args.output,
+        exam_id=args.exam,
+        mark_active=bool(args.mark_active),
+        checked_at=args.checked_at,
+        min_questions=args.min_questions,
+    )
+    print(render_kdata_convert_report(report))
     return 0
 
 

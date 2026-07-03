@@ -12,6 +12,7 @@ from cert_study.engine import create_session, finish_session, get_next_unanswere
 from cert_study.importer import import_bank_file
 from cert_study.importers.gcp_gail import convert_gail_practice_questions_text
 from cert_study.importers.info_processing import inspect_info_processing_archives, parse_info_processing_exam_blocks
+from cert_study.importers.kdata_text import convert_kdata_text_sources, inspect_kdata_text_sources
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
 from cert_study.quality import coverage_report, promote_gcp_gail_questions
@@ -595,6 +596,66 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(questions[0]["answer"], 3)
         self.assertEqual(questions[1]["choices"], ["기능 중심 개발", "개발 및 검증", "익스트림 프로그래밍", "칸반"])
         self.assertEqual(questions[1]["quality_status"], "needs_review")
+
+    def test_kdata_text_converter_builds_sqld_private_bank(self) -> None:
+        source = Path(self.tmp.name) / "sqld_raw.txt"
+        source.write_text(
+            """
+1. NULL 비교에 대한 설명으로 옳은 것은?
+1) NULL 여부는 IS NULL로 판단한다.
+2) NULL = NULL은 항상 TRUE다.
+3) NULL은 숫자 0과 같다.
+4) NULL은 빈 문자열과 항상 같다.
+
+2. HAVING 절의 역할로 가장 적절한 것은?
+A. 그룹화 후 집계 결과에 조건을 적용한다.
+B. 테이블을 물리적으로 삭제한다.
+C. 사용자 권한을 부여한다.
+D. 트랜잭션을 취소한다.
+
+정답
+1. 1
+2. A
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "sqld_import_ready.json"
+
+        inspect_report = inspect_kdata_text_sources(source, exam_id="SQLD")
+        convert_report = convert_kdata_text_sources(source, output, exam_id="SQLD")
+        import_result = import_bank_file(self.conn, output, private=True)
+
+        self.assertEqual(inspect_report["convertible_questions"], 2)
+        self.assertEqual(convert_report["converted_questions"], 2)
+        self.assertEqual(import_result["questions"], 2)
+        row = self.conn.execute("SELECT * FROM questions WHERE id LIKE 'SQLD_SRC_%' ORDER BY id LIMIT 1").fetchone()
+        self.assertEqual(row["source_type"], "licensed_private")
+        self.assertEqual(row["quality_status"], "needs_review")
+
+    def test_kdata_text_converter_builds_adsp_private_bank(self) -> None:
+        source = Path(self.tmp.name) / "adsp_raw.md"
+        source.write_text(
+            """
+1. 데이터와 정보의 관계로 옳은 것은?
+① 데이터는 목적에 맞게 처리되면 의사결정에 쓸 수 있는 정보가 될 수 있다.
+② 정보는 항상 원시 센서값만 의미한다.
+③ 데이터와 정보는 어떤 맥락에서도 구분되지 않는다.
+④ 정보는 분석 목적과 무관하다.
+
+정답: 1
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "adsp_import_ready.json"
+
+        report = convert_kdata_text_sources(source, output, exam_id="ADSP")
+        import_result = import_bank_file(self.conn, output, private=True)
+
+        self.assertEqual(report["converted_questions"], 1)
+        self.assertEqual(import_result["exam_id"], "ADSP")
+        row = self.conn.execute("SELECT domain_id, concept_id FROM questions WHERE id LIKE 'ADSP_SRC_%'").fetchone()
+        self.assertEqual(row["domain_id"], "ADSP-D1")
+        self.assertEqual(row["concept_id"], "ADSP-SRC-C-D1")
 
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})
