@@ -292,6 +292,8 @@ python3 -m cert_study bank convert-gcp-gail \
 
 python3 -m cert_study bank import \
   private_banks/import_ready/gcp/gcp_generative_ai_leader_gail_exam_preparation.json
+
+python3 -m cert_study bank promote-gcp-gail --checked-at 2026-07-03
 ```
 
 새 importer 형식은 기존 `answer: 1`도 계속 받지만, 가능하면 아래 메타데이터를 같이 둡니다.
@@ -324,6 +326,13 @@ python3 -m cert_study bank import \
 - `question_type = single_choice`
 
 즉, 합성 seed나 공식 검수 전 문항은 실전 모드에서 자동 제외됩니다. 부족한 과목은 먼저 `coverage`로 어느 영역이 비어 있는지 확인한 뒤 `private_banks/` 문제은행을 보강합니다.
+
+정보처리기사처럼 ZIP/PDF 자료가 있는 과목은 먼저 private archive를 점검합니다. 이 명령은 PDF 후보만 세고, 원문 문제를 공개 repo나 DB로 복사하지 않습니다.
+
+```bash
+python3 -m pip install -e ".[pdf]"
+python3 -m cert_study bank inspect-info-processing private_banks/raw_sources/info_processing/sinagong
+```
 
 ## 과목 추가
 
@@ -410,6 +419,8 @@ AGENTS.md
 - 문제 품질 상태와 source tier 기반 `exam-ready` 출제 모드
 - 공식 도메인 비중 대비 문제은행 커버리지 리포트
 - GCP Generative AI Leader 로컬 자료 변환기
+- GCP Generative AI Leader 공식 문서 URL 기반 exam-ready 승격 명령
+- 정보처리기사 private ZIP/PDF 후보 inspector
 - 미노출 우선, 복습 예정, 취약 개념 기반 출제 우선순위
 - CBT 세션 시작/답변/현재 문제/종료 명령
 - SQLite 학습 원장

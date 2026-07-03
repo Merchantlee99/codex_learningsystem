@@ -4,15 +4,17 @@ import os
 import tempfile
 import unittest
 import json
+import zipfile
 from pathlib import Path
 
 from cert_study.db import connect, initialize
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
 from cert_study.importer import import_bank_file
 from cert_study.importers.gcp_gail import convert_gail_practice_questions_text
+from cert_study.importers.info_processing import inspect_info_processing_archives
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
-from cert_study.quality import coverage_report
+from cert_study.quality import coverage_report, promote_gcp_gail_questions
 from cert_study.reporting import render_session_report, write_session_report
 from cert_study.seed_public import seed_public_banks
 
@@ -446,6 +448,68 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertIn("SQLD", text)
         self.assertIn("exam-ready", text)
         self.assertIn("부족", text)
+
+    def test_gcp_promotion_turns_official_doc_candidates_into_exam_ready(self) -> None:
+        payload = convert_gail_practice_questions_text(
+            """
+export const PRACTICE_QUESTIONS: Question[] = [
+  {
+    id: "q1",
+    sectionId: "fundamentals",
+    topicId: "llm-basics",
+    question: "What is the best use of a foundation model?",
+    options: ["A", "B", "C", "D"],
+    correctIndex: 1,
+    explanation: "A foundation model can be reused across many tasks.",
+    whyOthersWrong: ["A", "C", "D"],
+    officialDoc: "https://cloud.google.com/vertex-ai/generative-ai/docs/learn/overview",
+    difficulty: "easy",
+  },
+]
+""",
+            source_ref="https://github.com/ludovicobesana/gail-exam-preparation",
+        )
+        path = Path(self.tmp.name) / "gcp_gail.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        before = coverage_report(self.conn, "GCP_GENERATIVE_AI_LEADER")
+        result = promote_gcp_gail_questions(self.conn, checked_at="2026-07-03")
+        after = coverage_report(self.conn, "GCP_GENERATIVE_AI_LEADER")
+
+        self.assertEqual(before["exam_ready_questions"], 0)
+        self.assertEqual(result["promoted"], 1)
+        self.assertEqual(after["exam_ready_questions"], 1)
+        row = self.conn.execute(
+            "SELECT quality_status, validity_status, official_checked_at FROM questions WHERE exam_id = 'GCP_GENERATIVE_AI_LEADER'"
+        ).fetchone()
+        self.assertEqual(row["quality_status"], "active")
+        self.assertEqual(row["validity_status"], "current")
+        self.assertEqual(row["official_checked_at"], "2026-07-03")
+
+    def test_info_processing_archive_inspector_counts_private_pdf_candidates(self) -> None:
+        zip_path = Path(self.tmp.name) / "2025_info_processing_written.zip"
+        with zipfile.ZipFile(zip_path, "w") as archive:
+            archive.writestr("2025년1회_정보처리기사필기기출문제.pdf", b"%PDF-1.4\n")
+            archive.writestr("readme.txt", "ignore")
+
+        result = inspect_info_processing_archives(zip_path)
+
+        self.assertEqual(result["zip_count"], 1)
+        self.assertEqual(result["pdf_count"], 1)
+        self.assertEqual(result["archives"][0]["category"], "past_exam")
+        self.assertEqual(result["archives"][0]["pdfs"][0]["filename"], "2025년1회_정보처리기사필기기출문제.pdf")
+
+    def test_info_processing_archive_inspector_rejects_missing_path(self) -> None:
+        with self.assertRaises(ValueError):
+            inspect_info_processing_archives(Path(self.tmp.name) / "missing")
+
+    def test_info_processing_archive_inspector_rejects_non_zip_file(self) -> None:
+        text_path = Path(self.tmp.name) / "notes.txt"
+        text_path.write_text("not a zip", encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            inspect_info_processing_archives(text_path)
 
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})

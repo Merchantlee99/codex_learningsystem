@@ -10,6 +10,9 @@ authors = [{ name = "Sanginn Lee" }]
 [project.scripts]
 cert-study = "cert_study.cli:main"
 
+[project.optional-dependencies]
+pdf = ["pypdf>=5.0.0"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

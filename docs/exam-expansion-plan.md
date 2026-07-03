@@ -58,6 +58,19 @@ python3 -m cert_study session start --exam AWS_CLOUD_PRACTITIONER --regular --mo
 
 `coverage`는 공식 도메인 비중 기준으로 현재 `exam-ready` 문항이 몇 개 있는지 보여줍니다. 부족한 영역은 문제 수를 늘리는 것보다 먼저 출처와 품질 상태를 정리해야 합니다.
 
+GCP Generative AI Leader처럼 공식 문서 URL이 붙은 오픈 라이선스 문항은 import 직후 `needs_review` 상태입니다. 공식 도메인 매핑과 문항별 공식 문서 URL을 확인한 뒤 아래 명령으로 내부 CBT 실전 후보로 승격합니다.
+
+```bash
+python3 -m cert_study bank promote-gcp-gail --checked-at 2026-07-03
+```
+
+정보처리기사처럼 ZIP/PDF 원천이 있는 과목은 먼저 private archive inspector로 후보 구조를 확인합니다. 이 단계는 원문을 DB로 가져오지 않고, 다음 parser 입력 후보만 확인합니다.
+
+```bash
+python3 -m pip install -e ".[pdf]"
+python3 -m cert_study bank inspect-info-processing private_banks/raw_sources/info_processing/sinagong
+```
+
 구현 파일은 아래처럼 둡니다.
 
 ```text
@@ -171,11 +184,11 @@ JSON 예시는 `examples/private_bank.example.json`에 있습니다.
 | --- | --- | --- | --- |
 | `SQLD` | SQLD | 국내 데이터/IT | 공개 합성 문제은행 있음 |
 | `ADSP` | ADsP | 국내 데이터/IT | 공개 합성 문제은행 있음 |
-| `KR_INFO_PROCESSING_ENGINEER` | 정보처리기사 | 국내 데이터/IT | 공개 합성 문제은행 있음 |
+| `KR_INFO_PROCESSING_ENGINEER` | 정보처리기사 | 국내 데이터/IT | 공개 합성 문제은행 있음, private ZIP/PDF inspector 있음 |
 | `AWS_AI_PRACTITIONER` | AWS Certified AI Practitioner | 클라우드/AI | catalog만 있음 |
 | `AWS_CLOUD_PRACTITIONER` | AWS Certified Cloud Practitioner | 클라우드 기본 | catalog만 있음 |
 | `AWS_SOLUTIONS_ARCHITECT_ASSOCIATE` | AWS Certified Solutions Architect Associate | 클라우드 아키텍처 | catalog만 있음 |
-| `GCP_GENERATIVE_AI_LEADER` | Google Cloud Generative AI Leader | 클라우드/AI | 로컬 import-ready 변환기 있음 |
+| `GCP_GENERATIVE_AI_LEADER` | Google Cloud Generative AI Leader | 클라우드/AI | 로컬 import-ready 변환기와 quality 승격 명령 있음 |
 
 공식 시험 코드가 바뀌더라도 내부 ID는 안정적으로 유지합니다. 공식 코드, 버전, 가이드 URL, 확인 날짜는 문제은행 파일의 메타데이터로 따로 저장합니다.
 

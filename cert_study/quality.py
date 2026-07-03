@@ -7,6 +7,11 @@ from typing import Any
 EXAM_READY_MODE = "exam-ready"
 EXAM_READY_SOURCE_TIERS = {"official_sample", "open_license", "user_owned", "licensed_private"}
 EXAM_READY_QUALITY_STATUSES = {"active"}
+GCP_GAIL_ALLOWED_DOC_HOSTS = (
+    "https://cloud.google.com/",
+    "https://ai.google.dev/",
+    "https://notebooklm.google/",
+)
 
 
 def is_exam_ready_mode(mode: str) -> bool:
@@ -128,3 +133,57 @@ def render_coverage_report(report: dict[str, Any]) -> str:
         )
     return "\n".join(lines)
 
+
+def promote_gcp_gail_questions(
+    conn: sqlite3.Connection,
+    *,
+    checked_at: str,
+    exam_id: str = "GCP_GENERATIVE_AI_LEADER",
+) -> dict[str, int | str]:
+    candidates = conn.execute(
+        """
+        SELECT id, provenance_json
+        FROM questions
+        WHERE exam_id = ?
+          AND source_tier = 'open_license'
+          AND source_license = 'MIT'
+          AND quality_status = 'needs_review'
+          AND validity_status = 'needs_official_check'
+        """,
+        (exam_id,),
+    ).fetchall()
+    promotable = [row["id"] for row in candidates if has_allowed_official_doc(row["provenance_json"])]
+    if promotable:
+        conn.executemany(
+            """
+            UPDATE questions
+            SET
+              quality_status = 'active',
+              validity_status = 'current',
+              official_checked_at = ?,
+              quality_notes = '공식 문서 URL과 시험 도메인 매핑을 확인해 exam-ready 후보로 승격함'
+            WHERE id = ?
+            """,
+            [(checked_at, question_id) for question_id in promotable],
+        )
+        conn.commit()
+    return {
+        "exam_id": exam_id,
+        "checked_at": checked_at,
+        "candidates": len(candidates),
+        "promoted": len(promotable),
+        "skipped": len(candidates) - len(promotable),
+    }
+
+
+def has_allowed_official_doc(provenance_json: str) -> bool:
+    try:
+        import json
+
+        provenance = json.loads(provenance_json)
+    except (TypeError, ValueError):
+        return False
+    official_doc = provenance.get("official_doc")
+    if not isinstance(official_doc, str):
+        return False
+    return any(official_doc.startswith(host) for host in GCP_GAIL_ALLOWED_DOC_HOSTS)

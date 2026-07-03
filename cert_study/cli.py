@@ -8,9 +8,10 @@ from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
 from .importer import import_bank_file
 from .importers.gcp_gail import SOURCE_REPOSITORY, convert_gail_exam_data_file
+from .importers.info_processing import inspect_info_processing_archives, render_info_processing_archive_report
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
-from .quality import coverage_report, render_coverage_report
+from .quality import coverage_report, promote_gcp_gail_questions, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
 from .seed_public import seed_public_banks
 
@@ -56,6 +57,20 @@ def build_parser() -> argparse.ArgumentParser:
     bank_convert_gcp.add_argument("output", type=Path, help="생성할 import-ready JSON 경로")
     bank_convert_gcp.add_argument("--source-ref", default=SOURCE_REPOSITORY, help="출처로 남길 URL 또는 식별자")
     bank_convert_gcp.set_defaults(func=cmd_bank_convert_gcp_gail)
+
+    bank_promote_gcp = bank_sub.add_parser(
+        "promote-gcp-gail",
+        help="공식 문서 URL이 있는 GCP GAIL open-license 문항을 exam-ready 후보로 승격합니다.",
+    )
+    bank_promote_gcp.add_argument("--checked-at", required=True, help="검수일. 예: 2026-07-03")
+    bank_promote_gcp.set_defaults(func=cmd_bank_promote_gcp_gail)
+
+    bank_inspect_info = bank_sub.add_parser(
+        "inspect-info-processing",
+        help="정보처리기사 private ZIP/PDF 후보를 점검합니다. 원문은 import하지 않습니다.",
+    )
+    bank_inspect_info.add_argument("path", type=Path)
+    bank_inspect_info.set_defaults(func=cmd_bank_inspect_info_processing)
 
     session = sub.add_parser("session", help="CBT 세션을 관리합니다.")
     session_sub = session.add_subparsers(required=True)
@@ -187,6 +202,21 @@ def cmd_bank_convert_gcp_gail(args: argparse.Namespace) -> int:
         f"GCP Generative AI Leader 변환 완료: {args.output} "
         f"개념 {len(payload['concepts'])}개, 문항 {len(payload['questions'])}개"
     )
+    return 0
+
+
+def cmd_bank_promote_gcp_gail(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        result = promote_gcp_gail_questions(conn, checked_at=args.checked_at)
+    print(
+        f"GCP Generative AI Leader 승격 완료: 후보 {result['candidates']}문항, "
+        f"승격 {result['promoted']}문항, 제외 {result['skipped']}문항"
+    )
+    return 0
+
+
+def cmd_bank_inspect_info_processing(args: argparse.Namespace) -> int:
+    print(render_info_processing_archive_report(inspect_info_processing_archives(args.path)))
     return 0
 
 

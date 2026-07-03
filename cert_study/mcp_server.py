@@ -6,6 +6,7 @@ from typing import Any
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
+from .importers.info_processing import inspect_info_processing_archives, render_info_processing_archive_report
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .quality import coverage_report, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
@@ -64,6 +65,16 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {"exam": {"type": "string", "default": "SQLD"}},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "inspect_info_processing_archives",
+        "description": "정보처리기사 private ZIP/PDF 후보를 점검한다. 원문 import나 공개 저장은 하지 않는다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
             "additionalProperties": False,
         },
     },
@@ -221,6 +232,12 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with ready_conn() as conn:
             report = coverage_report(conn, arguments.get("exam", "SQLD"))
         return text_result(render_coverage_report(report), report)
+
+    if name == "inspect_info_processing_archives":
+        from pathlib import Path
+
+        report = inspect_info_processing_archives(Path(arguments["path"]))
+        return text_result(render_info_processing_archive_report(report), report)
 
     if name == "submit_answer":
         with ready_conn() as conn:
