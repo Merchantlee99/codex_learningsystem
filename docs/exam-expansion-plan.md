@@ -113,6 +113,7 @@ questions:
 - `correct_rationale`, `distractor_rationales`, `review_concepts`, `official_scope_refs`가 채워졌는지
 - `python3 -m cert_study audit final --exam <EXAM_ID>`가 통과하는지
 - `python3 -m cert_study audit readiness --min-rounds 3`에서 최소 3회분 기준을 충족하는지
+- `python3 -m cert_study audit state --min-rounds 3`에서 전체 대상 과목이 GREEN인지
 
 ## 실제 소스 기반 보강 흐름
 
@@ -131,9 +132,12 @@ python3 -m cert_study bank convert-kdata --exam SQLD private_banks/raw_sources/s
 python3 -m cert_study bank enrich-sqld-gold private_banks/import_ready/sqld/source_backed.json private_banks/gold_banks/sqld_gold.json --checked-at 2026-07-04 --prefer-source-contains sqld_2025_58.html --limit 50
 python3 -m cert_study bank import private_banks/gold_banks/sqld_gold.json --private
 python3 -m cert_study audit final --exam SQLD
+python3 -m cert_study audit state --exam SQLD --min-rounds 3
 ```
 
 이 흐름에서 중요한 건 문항 수가 아니라 독립적으로 풀 수 있는 지문입니다. SQL 코드나 표가 HTML의 별도 필드에 들어 있는 경우, 그 컨텍스트까지 지문에 합쳐야 합니다. 정답 해설에만 조건이 있고 문제 지문에는 조건이 없으면 `exam-ready`로 보지 않습니다.
+
+최종 사용 가능 상태는 `audit state`를 기준으로 봅니다. 이 명령은 gold 문항 부족분, 이미 확보한 source-backed 문항 중 보강해야 할 수량, 새로 수집해야 할 수량을 나눠 보여줍니다.
 
 ## 출제 우선순위
 

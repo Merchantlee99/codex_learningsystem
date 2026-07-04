@@ -25,7 +25,7 @@ cert_study/
   cli.py          명령줄 인터페이스
   db.py           SQLite 스키마와 연결
   engine.py       세션 선택, 답변 기록, 채점, 복습 일정 처리
-  gold.py         최종 학습용 gold 문제은행 검수와 승격
+  gold.py         최종 학습용 gold 문제은행 검수, 최종 상태 판정, 승격
   importer.py     개인 JSON/YAML 문제은행 import
   mcp_server.py   Codex 플러그인이 쓰는 stdio MCP 서버
   notion_sync.py  기본 비활성 Notion 쓰기 계획 하네스
@@ -110,7 +110,10 @@ final-mock
 ```bash
 python3 -m cert_study audit final --exam SQLD
 python3 -m cert_study audit readiness --min-rounds 3
+python3 -m cert_study audit state --min-rounds 3
 ```
+
+`audit final`은 한 과목이 정규 1회분을 만들 수 있는지 봅니다. `audit readiness`는 전체 과목의 GREEN/YELLOW/RED 요약입니다. `audit state`는 최종 사용 가능 상태를 판정하면서 gold 보강 수량, source-backed 추가 수집 수량, 영역별 부족분, 문항 결손 코드를 함께 산출합니다.
 
 검수용 템플릿을 만들고 보강하는 흐름:
 
@@ -145,4 +148,5 @@ python3 /Users/isanginn/.codex/skills/.system/plugin-creator/scripts/validate_pl
 - gold 문제은행 검수
 - exam-ready 모드가 gold 문항만 사용하는지
 - final-mock 모드가 정규 문항 수와 gold 문항만 사용하는지
+- audit state가 최종 사용 가능 상태와 부족 작업량을 정확히 계산하는지
 - multiple_response 문항이 정확한 정답 세트 기준으로 채점되는지

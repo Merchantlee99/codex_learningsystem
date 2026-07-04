@@ -56,6 +56,7 @@ prepare_notion_sync
 coverage_report
 final_audit_report
 readiness_audit_report
+final_state_report
 ```
 
 CLI 대체 명령:
@@ -68,6 +69,7 @@ python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 python3 -m cert_study coverage --exam SQLD
 python3 -m cert_study audit final --exam SQLD
 python3 -m cert_study audit readiness --min-rounds 3
+python3 -m cert_study audit state --min-rounds 3
 python3 -m cert_study session answer <session_id> <answer>
 python3 -m cert_study session current <session_id>
 python3 -m cert_study session finish <session_id>
@@ -97,6 +99,7 @@ python3 -m cert_study notion plan <session_id>
    - `SQLD 복습 세트`, `오답 다시 풀기` -> `mode: review-cbt`
    - `SQLD 실전 모드`, `시험 직전 모드`, `실전처럼` -> 먼저 `final_audit_report`, 충분하면 `mode: exam-ready`
    - `SQLD 정규 최종 모의고사`, `정규 시험처럼` -> 먼저 `final_audit_report`, 충분하면 `regular: true`, `mode: final-mock`
+   - `최종이냐`, `이제 정규 시험 준비에 써도 되냐`, `최종 사용 가능 상태냐` -> `final_state_report`를 먼저 호출하고 GREEN/YELLOW/RED를 그대로 말한다.
    - `SQLD 출처 기반으로 풀기`, `검수 전 문제도 풀기` -> `mode: source-backed`
    - 문제 수가 없으면 기본값 20문제
 
@@ -182,5 +185,6 @@ Notion은 선택 기능이다. 사용자가 명시적으로 Notion 동기화를 
 - 합성 문항을 제외하고 출처 기반 문항만 풀 때는 `--mode source-backed`를 쓴다.
 - 최종 시험 대비 세트는 `--mode exam-ready`를 쓰되, 이 모드는 gold audit 통과 문항만 사용한다.
 - 정규시험처럼 풀 때는 `--regular --mode final-mock`를 쓰고, 이 모드도 gold audit 통과 문항만 사용한다.
+- 최종 사용 가능 여부는 `final_state_report` 또는 `python3 -m cert_study audit state --min-rounds 3` 결과가 GREEN인지로만 말한다.
 - 생성 문제는 합성 문항임을 표시한다.
 - 공식 시험 세부 정보가 바뀌었을 가능성이 있으면 exam metadata를 업데이트하기 전 공식 출처로 확인한다.

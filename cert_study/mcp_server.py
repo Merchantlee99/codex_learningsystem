@@ -6,7 +6,14 @@ from typing import Any
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
-from .gold import audit_final_bank, audit_readiness, render_final_audit_report, render_readiness_report
+from .gold import (
+    audit_final_bank,
+    audit_final_state,
+    audit_readiness,
+    render_final_audit_report,
+    render_final_state_report,
+    render_readiness_report,
+)
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .quality import coverage_report, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
@@ -71,6 +78,18 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {"min_rounds": {"type": "integer", "default": 3, "minimum": 1}},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "final_state_report",
+        "description": "최종 사용 가능 상태인지 판정하고 과목별 gold 보강/추가 수집 부족분을 산출한다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "min_rounds": {"type": "integer", "default": 3, "minimum": 1},
+                "exams": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            },
             "additionalProperties": False,
         },
     },
@@ -141,7 +160,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.5.0"},
+                "serverInfo": {"name": "cert-study", "version": "0.5.1"},
             },
         )
     if method == "tools/list":
@@ -241,6 +260,15 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with ready_conn() as conn:
             report = audit_readiness(conn, min_rounds=int(arguments.get("min_rounds", 3)))
         return text_result(render_readiness_report(report), report)
+
+    if name == "final_state_report":
+        with ready_conn() as conn:
+            report = audit_final_state(
+                conn,
+                min_rounds=int(arguments.get("min_rounds", 3)),
+                exam_ids=arguments.get("exams"),
+            )
+        return text_result(render_final_state_report(report), report)
 
     if name == "submit_answer":
         with ready_conn() as conn:

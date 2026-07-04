@@ -90,6 +90,7 @@ python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 ```bash
 python3 -m cert_study audit final --exam SQLD
 python3 -m cert_study audit readiness --min-rounds 3
+python3 -m cert_study audit state --min-rounds 3
 python3 -m cert_study session start --exam SQLD --count 20 --mode exam-ready
 python3 -m cert_study session start --exam SQLD --regular --mode final-mock
 ```
@@ -135,7 +136,17 @@ python3 -m cert_study audit final --exam SQLD
 
 `audit final`에서 부족한 해설, 임시 개념 매핑, 공식 출제범위 참조 누락, 영역별 문항 수 부족이 나오면 아직 최종 학습용으로 보지 않습니다.
 
-`audit readiness`는 한 과목만 보는 것이 아니라 전체 과목을 대상으로 최소 몇 회분의 gold 문항이 있는지 보여줍니다. 정규시험 대비 최종 상태를 보려면 `audit final` 통과만이 아니라 `audit readiness --min-rounds 3` 기준도 같이 봅니다.
+`audit readiness`는 한 과목만 보는 것이 아니라 전체 과목을 대상으로 최소 몇 회분의 gold 문항이 있는지 보여줍니다.
+
+`audit state`는 최종 사용 가능 상태를 더 엄격하게 봅니다. 과목별로 `gold` 문항이 몇 개 부족한지, 이미 수집된 source-backed 문항 중 몇 개를 보강해야 하는지, 추가 수집이 몇 개 필요한지를 같이 보여줍니다.
+
+```bash
+python3 -m cert_study audit state --min-rounds 3
+python3 -m cert_study audit state --exam SQLD --min-rounds 3
+python3 -m cert_study audit state --min-rounds 3 --json --output private_banks/final_state.json
+```
+
+정규시험 대비 최종 상태는 `audit final` 통과만으로 보지 않습니다. 모든 대상 과목이 `audit state --min-rounds 3`에서 `GREEN`이어야 최종 사용 가능 상태로 봅니다.
 
 SQLD처럼 로컬에 실제 출처 기반 HTML/PDF를 모아둔 경우에는 아래 흐름으로 import-ready 파일을 만들고, 검수 가능한 gold 파일로 분리합니다. 이 파일들은 모두 `private_banks/` 아래에 두며 공개 repo에는 올라가지 않습니다.
 

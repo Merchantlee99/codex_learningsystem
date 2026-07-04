@@ -17,7 +17,15 @@ from cert_study.importers.info_processing import inspect_info_processing_archive
 from cert_study.importers.kdata_text import convert_kdata_text_sources, inspect_kdata_text_sources
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
-from cert_study.gold import audit_final_bank, audit_readiness, promote_gold_candidates, render_final_audit_report, render_readiness_report
+from cert_study.gold import (
+    audit_final_bank,
+    audit_final_state,
+    audit_readiness,
+    promote_gold_candidates,
+    render_final_audit_report,
+    render_final_state_report,
+    render_readiness_report,
+)
 from cert_study.quality import coverage_report, promote_gcp_gail_questions
 from cert_study.reporting import render_question, render_session_report, write_session_report
 from cert_study.seed_public import seed_public_banks
@@ -453,6 +461,7 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("list_exams", tool_names)
         self.assertIn("start_session", tool_names)
         self.assertIn("final_audit_report", tool_names)
+        self.assertIn("final_state_report", tool_names)
         self.assertIn("prepare_notion_sync", tool_names)
         start_tool = next(tool for tool in tools_response["result"]["tools"] if tool["name"] == "start_session")
         self.assertIn("mode", start_tool["inputSchema"]["properties"])
@@ -770,6 +779,58 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(by_exam["EXAM_READY_TEST"]["status"], "GREEN")
         self.assertEqual(by_exam["EXAM_NOT_READY"]["status"], "RED")
         self.assertIn("EXAM_NOT_READY", rendered)
+
+    def test_final_state_audit_reports_collection_and_enrichment_gaps(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-GOLD-1", "open_license", "active", "current", 1),
+                ("Q-GOLD-2", "open_license", "active", "current", 2),
+                ("Q-CANDIDATE", "open_license", "active", "current", 3, "candidate"),
+            ],
+            official_count=2,
+        )
+        for question in payload["questions"]:
+            if question["id"] == "Q-CANDIDATE":
+                question["correct_rationale"] = ""
+        path = Path(self.tmp.name) / "final_state_gap_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        report = audit_final_state(self.conn, min_rounds=2, exam_ids=["EXAM_READY_TEST"])
+        rendered = render_final_state_report(report)
+        row = report["exams"][0]
+
+        self.assertFalse(report["final_ready"])
+        self.assertEqual(row["status"], "YELLOW")
+        self.assertEqual(row["target_gold_questions"], 4)
+        self.assertEqual(row["gold_questions"], 2)
+        self.assertEqual(row["source_backed_questions"], 3)
+        self.assertEqual(row["gold_gap_to_target"], 2)
+        self.assertEqual(row["source_collection_gap"], 1)
+        self.assertEqual(row["gold_enrichment_needed"], 1)
+        self.assertIn("missing_correct_rationale", row["question_gap_codes"])
+        self.assertIn("최종 사용 가능 상태", rendered)
+        self.assertIn("EXAM_READY_TEST", rendered)
+
+    def test_final_state_audit_is_ready_only_when_target_rounds_are_gold(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-GOLD-1", "open_license", "active", "current", 1),
+                ("Q-GOLD-2", "open_license", "active", "current", 2),
+                ("Q-GOLD-3", "open_license", "active", "current", 3),
+                ("Q-GOLD-4", "open_license", "active", "current", 4),
+            ],
+            official_count=2,
+        )
+        path = Path(self.tmp.name) / "final_state_ready_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        report = audit_final_state(self.conn, min_rounds=2, exam_ids=["EXAM_READY_TEST"])
+
+        self.assertTrue(report["final_ready"])
+        self.assertEqual(report["exams"][0]["status"], "GREEN")
+        self.assertEqual(report["exams"][0]["gold_gap_to_target"], 0)
 
     def test_promote_gold_candidates_requires_full_rationale_fields(self) -> None:
         payload = exam_ready_payload(

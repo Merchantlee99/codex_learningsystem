@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 from pathlib import Path
 
@@ -8,10 +9,12 @@ from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
 from .gold import (
     audit_final_bank,
+    audit_final_state,
     audit_readiness,
     export_gold_template,
     promote_gold_candidates,
     render_final_audit_report,
+    render_final_state_report,
     render_readiness_report,
 )
 from .importer import import_bank_file
@@ -77,6 +80,16 @@ def build_parser() -> argparse.ArgumentParser:
     audit_readiness_parser = audit_sub.add_parser("readiness", help="전체 과목이 정규 시험 대비 기준을 충족하는지 점검합니다.")
     audit_readiness_parser.add_argument("--min-rounds", type=int, default=3, help="최소 gold 회분 기준입니다. 기본값은 3회분입니다.")
     audit_readiness_parser.set_defaults(func=cmd_audit_readiness)
+
+    audit_state = audit_sub.add_parser(
+        "state",
+        help="최종 사용 가능 상태와 과목별 gold 보강/추가 수집 부족분을 산출합니다.",
+    )
+    audit_state.add_argument("--min-rounds", type=int, default=3, help="최소 gold 회분 기준입니다. 기본값은 3회분입니다.")
+    audit_state.add_argument("--exam", action="append", help="특정 시험만 점검합니다. 여러 번 지정할 수 있습니다.")
+    audit_state.add_argument("--json", action="store_true", help="기계 처리용 JSON으로 출력합니다.")
+    audit_state.add_argument("--output", type=Path, help="점검 결과를 파일로 저장합니다.")
+    audit_state.set_defaults(func=cmd_audit_state)
 
     bank = sub.add_parser("bank", help="개인 문제은행 import를 관리합니다.")
     bank_sub = bank.add_subparsers(required=True)
@@ -339,6 +352,19 @@ def cmd_audit_readiness(args: argparse.Namespace) -> int:
         report = audit_readiness(conn, min_rounds=args.min_rounds)
     print(render_readiness_report(report))
     return 0 if all(row["status"] == "GREEN" for row in report["exams"]) else 2
+
+
+def cmd_audit_state(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        report = audit_final_state(conn, min_rounds=args.min_rounds, exam_ids=args.exam)
+    rendered = json.dumps(report, ensure_ascii=False, indent=2) if args.json else render_final_state_report(report)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered + "\n", encoding="utf-8")
+        print(f"최종 상태 점검 결과 저장: {args.output}")
+    else:
+        print(rendered)
+    return 0 if report["final_ready"] else 2
 
 
 def cmd_bank_import(args: argparse.Namespace) -> int:
