@@ -6,6 +6,7 @@ from typing import Any
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
+from .gold import audit_final_bank, render_final_audit_report
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .quality import coverage_report, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
@@ -39,7 +40,7 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "enum": ["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "source-backed"],
                     "default": "custom-cbt",
-                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
+                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 gold 문항만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
                 },
                 "seed": {"type": "integer"},
             },
@@ -48,7 +49,16 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "coverage_report",
-        "description": "공식 출제 비중 기준으로 exam-ready 문제은행 품질을 점검한다.",
+        "description": "공식 출제 비중 기준으로 gold exam-ready 문제은행 품질을 점검한다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"exam": {"type": "string", "default": "SQLD"}},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "final_audit_report",
+        "description": "gold 문제은행이 placeholder 해설, 임시 개념, 출제범위 누락 없이 바로 학습 가능한지 점검한다.",
         "inputSchema": {
             "type": "object",
             "properties": {"exam": {"type": "string", "default": "SQLD"}},
@@ -116,7 +126,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.3.6"},
+                "serverInfo": {"name": "cert-study", "version": "0.4.0"},
             },
         )
     if method == "tools/list":
@@ -161,6 +171,8 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                       COUNT(
                         CASE
                           WHEN q.quality_status = 'active'
+                           AND q.validity_status = 'current'
+                           AND q.gold_status = 'gold'
                            AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
                            AND q.question_type = 'single_choice'
                           THEN 1
@@ -204,6 +216,11 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with ready_conn() as conn:
             report = coverage_report(conn, arguments.get("exam", "SQLD"))
         return text_result(render_coverage_report(report), report)
+
+    if name == "final_audit_report":
+        with ready_conn() as conn:
+            report = audit_final_bank(conn, arguments.get("exam", "SQLD"))
+        return text_result(render_final_audit_report(report), report)
 
     if name == "submit_answer":
         with ready_conn() as conn:

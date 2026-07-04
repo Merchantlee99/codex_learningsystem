@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS questions (
   scope_version TEXT NOT NULL DEFAULT '',
   official_checked_at TEXT NOT NULL DEFAULT '',
   quality_notes TEXT NOT NULL DEFAULT '',
+  correct_rationale TEXT NOT NULL DEFAULT '',
+  distractor_rationales_json TEXT NOT NULL DEFAULT '{}',
+  review_concepts_json TEXT NOT NULL DEFAULT '[]',
+  official_scope_refs_json TEXT NOT NULL DEFAULT '[]',
+  gold_status TEXT NOT NULL DEFAULT 'none',
+  gold_checked_at TEXT NOT NULL DEFAULT '',
+  gold_notes TEXT NOT NULL DEFAULT '',
   provenance_json TEXT NOT NULL DEFAULT '{}'
 );
 
@@ -158,6 +165,13 @@ def ensure_schema_extensions(conn: sqlite3.Connection) -> None:
             "scope_version": "TEXT NOT NULL DEFAULT ''",
             "official_checked_at": "TEXT NOT NULL DEFAULT ''",
             "quality_notes": "TEXT NOT NULL DEFAULT ''",
+            "correct_rationale": "TEXT NOT NULL DEFAULT ''",
+            "distractor_rationales_json": "TEXT NOT NULL DEFAULT '{}'",
+            "review_concepts_json": "TEXT NOT NULL DEFAULT '[]'",
+            "official_scope_refs_json": "TEXT NOT NULL DEFAULT '[]'",
+            "gold_status": "TEXT NOT NULL DEFAULT 'none'",
+            "gold_checked_at": "TEXT NOT NULL DEFAULT ''",
+            "gold_notes": "TEXT NOT NULL DEFAULT ''",
             "provenance_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )

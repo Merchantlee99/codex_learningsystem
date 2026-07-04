@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable
 
-from .quality import is_exam_ready_mode, is_exam_ready_row, is_source_backed_mode, is_source_backed_row
+from .quality import (
+    SOURCE_BACKED_BLOCKED_QUALITY_STATUSES,
+    is_exam_ready_mode,
+    is_exam_ready_row,
+    is_source_backed_mode,
+    is_source_backed_row,
+)
 
 RECENT_EXCLUSION_DAYS = 1
 REVIEW_MODES = {"review-cbt", "review", "due-review"}
@@ -100,6 +107,7 @@ def select_questions(
     counts = allocate_domain_counts(domains, count)
     rng = random.Random(seed if seed is not None else datetime.now().timestamp())
     selected: list[sqlite3.Row] = []
+    selected_fingerprints: set[str] = set()
     for domain in domains:
         rows = question_candidates(conn, exam_id=exam_id, domain_id=domain["id"], mode=mode)
         need = counts[domain["id"]]
@@ -107,11 +115,12 @@ def select_questions(
             if is_exam_ready_mode(mode):
                 raise ValueError(
                     f"exam-ready 문항이 부족합니다: {domain['name']} need {need}, have {len(rows)}. "
-                    "quality_status=active이고 source_tier가 official_sample/open_license/user_owned/licensed_private인 문제를 보강하세요."
+                    "quality_status=active, validity_status=current, gold_status=gold인 문제를 보강하세요."
                 )
             raise ValueError(f"not enough questions for {domain['name']}: need {need}, have {len(rows)}")
         ranked = rank_question_candidates(rows, mode=mode, rng=rng)
-        selected.extend(ranked[:need])
+        domain_selected = take_distinct_questions(ranked, need, selected_fingerprints)
+        selected.extend(domain_selected)
     rng.shuffle(selected)
     return selected
 
@@ -156,6 +165,7 @@ def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: st
         """,
         (exam_id, domain_id),
     ).fetchall()
+    rows = [row for row in rows if row["quality_status"] not in SOURCE_BACKED_BLOCKED_QUALITY_STATUSES]
     if is_exam_ready_mode(mode):
         return [row for row in rows if is_exam_ready_row(row)]
     if is_source_backed_mode(mode):
@@ -168,6 +178,35 @@ def rank_question_candidates(rows: list[sqlite3.Row], *, mode: str, rng: random.
     rng.shuffle(ranked)
     ranked.sort(key=lambda row: question_priority(row, mode=mode))
     return ranked
+
+
+def take_distinct_questions(
+    ranked: list[sqlite3.Row],
+    need: int,
+    selected_fingerprints: set[str],
+) -> list[sqlite3.Row]:
+    selected: list[sqlite3.Row] = []
+    deferred: list[sqlite3.Row] = []
+    for row in ranked:
+        fingerprint = question_fingerprint(row)
+        if fingerprint in selected_fingerprints:
+            deferred.append(row)
+            continue
+        selected.append(row)
+        selected_fingerprints.add(fingerprint)
+        if len(selected) == need:
+            return selected
+
+    for row in deferred:
+        selected.append(row)
+        selected_fingerprints.add(question_fingerprint(row))
+        if len(selected) == need:
+            return selected
+    return selected
+
+
+def question_fingerprint(row: sqlite3.Row) -> str:
+    return re.sub(r"\s+", " ", row["question_text"]).strip().lower()
 
 
 def question_priority(row: sqlite3.Row, *, mode: str) -> tuple[object, ...]:

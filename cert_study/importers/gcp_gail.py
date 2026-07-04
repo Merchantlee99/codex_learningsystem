@@ -61,6 +61,7 @@ def convert_gail_practice_questions_text(text: str, *, source_ref: str = SOURCE_
         options = extract_string_array(block, "options")
         correct_index = extract_int(block, "correctIndex")
         explanation = extract_string(block, "explanation")
+        why_others_wrong = extract_optional_string_array(block, "whyOthersWrong")
         official_doc = extract_optional_string(block, "officialDoc")
         difficulty = extract_optional_string(block, "difficulty") or "medium"
 
@@ -83,6 +84,7 @@ def convert_gail_practice_questions_text(text: str, *, source_ref: str = SOURCE_
             }
 
         answer = correct_index + 1
+        review_concept = topic_id.replace("-", " ").title()
         questions.append(
             {
                 "id": f"GCP_GAIL_{position:03d}_{id_part(canonical_section_id)}_{id_part(topic_id)}_{id_part(original_id)}",
@@ -94,6 +96,13 @@ def convert_gail_practice_questions_text(text: str, *, source_ref: str = SOURCE_
                 "answer": answer,
                 "answer_json": {"choices": [answer]},
                 "explanation": explanation,
+                "correct_rationale": explanation,
+                "distractor_rationales": distractor_rationales(answer, why_others_wrong),
+                "review_concepts": [review_concept],
+                "official_scope_refs": [
+                    f"GCP-GAIL-{canonical_section_id}-{topic_id}",
+                    official_doc or "GCP Generative AI Leader exam guide",
+                ],
                 "difficulty": difficulty,
                 "source_type": "public_license",
                 "source_ref": source_ref,
@@ -105,6 +114,9 @@ def convert_gail_practice_questions_text(text: str, *, source_ref: str = SOURCE_
                 "scope_version": "2026",
                 "official_checked_at": "",
                 "quality_notes": "공식 Google Cloud 시험 가이드 대조 전입니다.",
+                "gold_status": "candidate",
+                "gold_checked_at": "",
+                "gold_notes": "",
                 "provenance": {
                     "repository": source_ref,
                     "path": "lib/exam-data.ts",
@@ -221,6 +233,29 @@ def extract_string_array(block: str, field: str) -> list[str]:
     end = find_matching(block, start, "[", "]")
     array_text = block[start + 1 : end]
     return [decode_js_string(item.group(0)) for item in re.finditer(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", array_text)]
+
+
+def extract_optional_string_array(block: str, field: str) -> list[str]:
+    marker = re.search(rf"\b{field}\s*:", block)
+    if marker is None:
+        return []
+    start = block.find("[", marker.end())
+    if start == -1:
+        return []
+    end = find_matching(block, start, "[", "]")
+    array_text = block[start + 1 : end]
+    return [decode_js_string(item.group(0)) for item in re.finditer(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", array_text)]
+
+
+def distractor_rationales(answer: int, why_others_wrong: list[str]) -> dict[str, str]:
+    wrong_indexes = [idx for idx in range(1, 5) if idx != answer]
+    result: dict[str, str] = {}
+    for position, idx in enumerate(wrong_indexes):
+        if position < len(why_others_wrong) and why_others_wrong[position].strip():
+            result[str(idx)] = why_others_wrong[position].strip()
+        else:
+            result[str(idx)] = "이 선택지는 문제 요구 조건을 만족하지 못하므로 정답이 아닙니다."
+    return result
 
 
 def extract_int(block: str, field: str) -> int:

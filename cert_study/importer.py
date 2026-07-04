@@ -27,6 +27,7 @@ FORBIDDEN_SOURCE_TYPES = {
     "commercial_book_verbatim",
     "web_scraped_verbatim",
 }
+GOLD_STATUSES = {"none", "candidate", "gold", "rejected", "needs_review"}
 
 
 def import_bank_file(conn: sqlite3.Connection, path: Path, *, private: bool = False) -> dict[str, int | str]:
@@ -107,9 +108,16 @@ def import_bank_file(conn: sqlite3.Connection, path: Path, *, private: bool = Fa
           scope_version,
           official_checked_at,
           quality_notes,
+          correct_rationale,
+          distractor_rationales_json,
+          review_concepts_json,
+          official_scope_refs_json,
+          gold_status,
+          gold_checked_at,
+          gold_notes,
           provenance_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [normalize_question(row, exam_id) for row in questions],
     )
@@ -159,6 +167,22 @@ def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
     source_type = require_text(row, "source_type")
     source_ref = require_text(row, "source_ref")
     validity_status = optional_text(row, "validity_status", "current")
+    gold_status = normalize_gold_status(row)
+    distractor_rationales = normalize_json_object(row, "distractor_rationales", "distractor_rationales_json")
+    review_concepts = normalize_json_list(row, "review_concepts", "review_concepts_json")
+    official_scope_refs = normalize_json_list(row, "official_scope_refs", "official_scope_refs_json")
+    correct_rationale = optional_loose_text(row, "correct_rationale", "")
+    gold_checked_at = optional_loose_text(row, "gold_checked_at", "")
+    if gold_status == "gold":
+        validate_gold_declared_question(
+            row,
+            answer=answer,
+            correct_rationale=correct_rationale,
+            distractor_rationales=distractor_rationales,
+            review_concepts=review_concepts,
+            official_scope_refs=official_scope_refs,
+            gold_checked_at=gold_checked_at,
+        )
     return (
         require_text(row, "id"),
         exam_id,
@@ -181,6 +205,13 @@ def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
         str(row.get("scope_version", "")),
         str(row.get("official_checked_at", "")),
         str(row.get("quality_notes", "")),
+        correct_rationale,
+        json.dumps(distractor_rationales, ensure_ascii=False, sort_keys=True),
+        json.dumps(review_concepts, ensure_ascii=False),
+        json.dumps(official_scope_refs, ensure_ascii=False),
+        gold_status,
+        gold_checked_at,
+        optional_loose_text(row, "gold_notes", ""),
         normalize_provenance_json(row, source_ref=source_ref),
     )
 
@@ -270,6 +301,69 @@ def normalize_provenance_json(row: dict[str, Any], *, source_ref: str) -> str:
     return json.dumps(parsed, ensure_ascii=False, sort_keys=True)
 
 
+def normalize_gold_status(row: dict[str, Any]) -> str:
+    value = str(row.get("gold_status", "none")).strip() or "none"
+    if value not in GOLD_STATUSES:
+        raise ValueError(f"{row.get('id', '<unknown>')} gold_status는 {', '.join(sorted(GOLD_STATUSES))} 중 하나여야 합니다.")
+    return value
+
+
+def normalize_json_object(row: dict[str, Any], key: str, legacy_key: str) -> dict[str, Any]:
+    value = row.get(key, row.get(legacy_key, {}))
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{row.get('id', '<unknown>')} {key}는 JSON object여야 합니다.") from exc
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{row.get('id', '<unknown>')} {key}는 object여야 합니다.")
+    return {str(k): v for k, v in value.items()}
+
+
+def normalize_json_list(row: dict[str, Any], key: str, legacy_key: str) -> list[Any]:
+    value = row.get(key, row.get(legacy_key, []))
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{row.get('id', '<unknown>')} {key}는 JSON array여야 합니다.") from exc
+    if value is None:
+        value = []
+    if not isinstance(value, list):
+        raise ValueError(f"{row.get('id', '<unknown>')} {key}는 list여야 합니다.")
+    return value
+
+
+def validate_gold_declared_question(
+    row: dict[str, Any],
+    *,
+    answer: int,
+    correct_rationale: str,
+    distractor_rationales: dict[str, Any],
+    review_concepts: list[Any],
+    official_scope_refs: list[Any],
+    gold_checked_at: str,
+) -> None:
+    question_id = row.get("id", "<unknown>")
+    if not correct_rationale.strip():
+        raise ValueError(f"{question_id} gold 문항은 correct_rationale이 필요합니다.")
+    missing = [
+        str(idx)
+        for idx in range(1, 5)
+        if idx != answer and not str(distractor_rationales.get(str(idx), "")).strip()
+    ]
+    if missing:
+        raise ValueError(f"{question_id} gold 문항은 오답 선택지 해설이 필요합니다: {', '.join(missing)}")
+    if not all(isinstance(item, str) and item.strip() for item in review_concepts):
+        raise ValueError(f"{question_id} gold 문항은 review_concepts가 필요합니다.")
+    if not all(isinstance(item, str) and item.strip() for item in official_scope_refs):
+        raise ValueError(f"{question_id} gold 문항은 official_scope_refs가 필요합니다.")
+    if not gold_checked_at.strip():
+        raise ValueError(f"{question_id} gold 문항은 gold_checked_at이 필요합니다.")
+
+
 def require_dict(payload: dict[str, Any], key: str) -> dict[str, Any]:
     value = payload.get(key)
     if not isinstance(value, dict):
@@ -296,3 +390,12 @@ def optional_text(payload: dict[str, Any], key: str, default: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{key}는 비어 있지 않은 문자열이어야 합니다.")
     return value
+
+
+def optional_loose_text(payload: dict[str, Any], key: str, default: str) -> str:
+    value = payload.get(key, default)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise ValueError(f"{key}는 문자열이어야 합니다.")
+    return value.strip()

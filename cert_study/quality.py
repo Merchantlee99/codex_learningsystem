@@ -7,8 +7,10 @@ from typing import Any
 EXAM_READY_MODE = "exam-ready"
 EXAM_READY_SOURCE_TIERS = {"official_sample", "open_license", "user_owned", "licensed_private"}
 EXAM_READY_QUALITY_STATUSES = {"active"}
+EXAM_READY_GOLD_STATUS = "gold"
 SOURCE_BACKED_MODES = {"source-backed", "source_backed", "source-backed-cbt", "real-cbt", "private-cbt"}
 SYNTHETIC_SOURCE_TYPES = {"synthetic", "synthetic_recent_scope"}
+SOURCE_BACKED_BLOCKED_QUALITY_STATUSES = {"needs_repair", "broken", "outdated"}
 GCP_GAIL_ALLOWED_DOC_HOSTS = (
     "https://cloud.google.com/",
     "https://ai.google.dev/",
@@ -27,6 +29,8 @@ def is_source_backed_mode(mode: str) -> bool:
 def is_exam_ready_row(row: sqlite3.Row) -> bool:
     return (
         row["quality_status"] in EXAM_READY_QUALITY_STATUSES
+        and row["validity_status"] == "current"
+        and row["gold_status"] == EXAM_READY_GOLD_STATUS
         and row["source_tier"] in EXAM_READY_SOURCE_TIERS
         and row["question_type"] == "single_choice"
     )
@@ -36,6 +40,7 @@ def is_source_backed_row(row: sqlite3.Row) -> bool:
     return (
         row["source_type"] not in SYNTHETIC_SOURCE_TYPES
         and row["source_tier"] != "synthetic"
+        and row["quality_status"] not in SOURCE_BACKED_BLOCKED_QUALITY_STATUSES
         and row["question_type"] == "single_choice"
     )
 
@@ -58,6 +63,8 @@ def coverage_report(conn: sqlite3.Connection, exam_id: str) -> dict[str, Any]:
               COUNT(
                 CASE
                   WHEN q.quality_status = 'active'
+                   AND q.validity_status = 'current'
+                   AND q.gold_status = 'gold'
                    AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
                    AND q.question_type = 'single_choice'
                   THEN 1
@@ -113,6 +120,8 @@ def exam_ready_question_count(conn: sqlite3.Connection, exam_id: str) -> int:
         FROM questions
         WHERE exam_id = ?
           AND quality_status = 'active'
+          AND validity_status = 'current'
+          AND gold_status = 'gold'
           AND source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
           AND question_type = 'single_choice'
         """,
@@ -175,10 +184,26 @@ def promote_gcp_gail_questions(
               quality_status = 'active',
               validity_status = 'current',
               official_checked_at = ?,
+              gold_status = CASE
+                WHEN correct_rationale != ''
+                 AND distractor_rationales_json != '{}'
+                 AND review_concepts_json != '[]'
+                 AND official_scope_refs_json != '[]'
+                THEN 'gold'
+                ELSE gold_status
+              END,
+              gold_checked_at = CASE
+                WHEN correct_rationale != ''
+                 AND distractor_rationales_json != '{}'
+                 AND review_concepts_json != '[]'
+                 AND official_scope_refs_json != '[]'
+                THEN ?
+                ELSE gold_checked_at
+              END,
               quality_notes = '공식 문서 URL과 시험 도메인 매핑을 확인해 exam-ready 후보로 승격함'
             WHERE id = ?
             """,
-            [(checked_at, question_id) for question_id in promotable],
+            [(checked_at, checked_at, question_id) for question_id in promotable],
         )
         conn.commit()
     return {

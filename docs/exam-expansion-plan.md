@@ -33,7 +33,7 @@ python3 -m cert_study bank import private_banks/my-bank.json --private
 
 ## 문제은행 품질 상태
 
-`exam-ready` 세션은 내부 CBT를 그대로 쓰되, 실전 후보로 표시된 문제만 고릅니다.
+`exam-ready` 세션은 내부 CBT를 그대로 쓰되, gold 검수를 통과한 문제만 고릅니다. 검수 전 출처 기반 문제는 `source-backed`로 풀 수 있지만, 최종 시험 대비 세트라고 부르지는 않습니다.
 
 | 필드 | 의미 |
 | --- | --- |
@@ -44,6 +44,8 @@ python3 -m cert_study bank import private_banks/my-bank.json --private
 | `quality_status=active` | 내부 실전 후보로 사용 가능 |
 | `quality_status=needs_review` | 공식 범위/정답 검수 전 |
 | `quality_status=outdated` | 시험 범위 변경으로 제외 |
+| `gold_status=candidate` | 정답/오답 해설과 범위 매핑 보강 중 |
+| `gold_status=gold` | final audit을 통과한 최종 학습용 문항 |
 
 공개 SQLD seed는 합성 데모이므로 `exam-ready`가 아니라 일반 CBT 데모에 가깝습니다. 실제 학습용 source-backed 문항은 로컬에서만 import합니다.
 
@@ -83,8 +85,18 @@ questions:
       - "보기 4"
     answer: 1
     explanation: "정답 근거를 사용자 말로 정리한다."
+    correct_rationale: "1번이 정답인 이유"
+    distractor_rationales:
+      "2": "2번이 오답인 이유"
+      "3": "3번이 오답인 이유"
+      "4": "4번이 오답인 이유"
+    review_concepts:
+      - NULL 처리
+    official_scope_refs:
+      - SQLD-D2-NULL
     source_type: user_owned_summary
     source_ref: "개인 오답노트 기반 요약"
+    gold_status: candidate
 ```
 
 ## 가져오기 전 확인할 것
@@ -97,6 +109,8 @@ questions:
 - 현재 엔진이 지원하는 `single_choice` 문항인지
 - 개인 source type은 반드시 `--private` 옵션으로만 import되는지
 - 공개 repo에 원문 문제가 들어가지 않는지
+- `correct_rationale`, `distractor_rationales`, `review_concepts`, `official_scope_refs`가 채워졌는지
+- `python3 -m cert_study audit final --exam <EXAM_ID>`가 통과하는지
 
 ## 출제 우선순위
 
@@ -108,7 +122,7 @@ questions:
 | `review-cbt` | 복습 예정 오답 -> 오답 이력 문제 -> 미노출 문제 |
 | `weak-cbt` | 자주 틀린 개념의 문항 -> 복습 예정 문제 -> 미노출 문제 |
 | `source-backed` | 합성 seed를 제외하고 출처가 있는 로컬 문항 |
-| `exam-ready` | `quality_status=active`이고 비합성 source tier인 문항 |
+| `exam-ready` | `quality_status=active`, `validity_status=current`, `gold_status=gold`인 문항 |
 
 ## 공개 repo에서 보여줄 것
 

@@ -30,6 +30,8 @@ Codex는 아래 역할을 맡는다.
 - 공개 repo에 기본 포함된 합성 문제은행은 SQLD 하나다.
 - SQLD 외 과목은 로컬 DB에 import되어 `list_exams`의 `available`에 있을 때만 CBT 세션을 시작한다.
 - 요청한 과목이 `available`에 없으면 문제를 임의 생성하지 말고 “아직 문제은행이 없어 CBT 세션을 시작할 수 없다”고 말한다.
+- `exam-ready`는 `gold_status=gold`까지 통과한 최종 학습용 문제만 의미한다.
+- 검수 전 출처 기반 문항은 `source-backed`로만 풀고, 실전 모드처럼 말하지 않는다.
 - 실제 기출, 족보, 유료 문제집 원문은 공개 repo 문제은행으로 가져오지 않는다.
 - 지원 여부가 애매하면 먼저 `list_exams`를 호출한다.
 
@@ -51,6 +53,7 @@ submit_answer
 finish_session
 prepare_notion_sync
 coverage_report
+final_audit_report
 ```
 
 CLI 대체 명령:
@@ -61,6 +64,7 @@ python3 -m cert_study session start --exam SQLD --count 20
 python3 -m cert_study session start --exam SQLD --count 10 --mode weak-cbt
 python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 python3 -m cert_study coverage --exam SQLD
+python3 -m cert_study audit final --exam SQLD
 python3 -m cert_study session answer <session_id> <1-4>
 python3 -m cert_study session current <session_id>
 python3 -m cert_study session finish <session_id>
@@ -88,7 +92,8 @@ python3 -m cert_study notion plan <session_id>
    - `SQLD 20문제` -> 20문제 커스텀 세션 시작
    - `SQLD 약점 세트`, `자주 틀린 개념 위주` -> `mode: weak-cbt`
    - `SQLD 복습 세트`, `오답 다시 풀기` -> `mode: review-cbt`
-   - `SQLD 실전 모드`, `시험 직전 모드`, `실전처럼` -> 먼저 `coverage_report`, 충분하면 `mode: exam-ready`
+   - `SQLD 실전 모드`, `시험 직전 모드`, `실전처럼` -> 먼저 `final_audit_report`, 충분하면 `mode: exam-ready`
+   - `SQLD 출처 기반으로 풀기`, `검수 전 문제도 풀기` -> `mode: source-backed`
    - 문제 수가 없으면 기본값 20문제
 
 4. 기본 `custom-cbt` 세션은 미노출 문제를 먼저 고른다. 같은 문제를 외우지 않도록 최근에 본 문제는 뒤로 밀린다.
@@ -167,5 +172,6 @@ Notion은 선택 기능이다. 사용자가 명시적으로 Notion 동기화를 
 - 사용자가 로컬에서 다른 과목이나 개인 문제은행을 import해도 공개 설명에서는 개인 사용 현황처럼 쓰지 않는다.
 - 외부 사이트에서 풀고 답만 기록하는 external CBT 방식으로 우회하지 않는다. 문제 출제, 답변, 채점, 오답노트는 이 시스템 내부에서 진행한다.
 - 합성 문항을 제외하고 출처 기반 문항만 풀 때는 `--mode source-backed`를 쓴다.
+- 최종 시험 대비 세트는 `--mode exam-ready`를 쓰되, 이 모드는 gold audit 통과 문항만 사용한다.
 - 생성 문제는 합성 문항임을 표시한다.
 - 공식 시험 세부 정보가 바뀌었을 가능성이 있으면 exam metadata를 업데이트하기 전 공식 출처로 확인한다.

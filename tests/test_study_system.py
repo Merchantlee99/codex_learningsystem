@@ -16,6 +16,7 @@ from cert_study.importers.info_processing import inspect_info_processing_archive
 from cert_study.importers.kdata_text import convert_kdata_text_sources, inspect_kdata_text_sources
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
+from cert_study.gold import audit_final_bank, promote_gold_candidates, render_final_audit_report
 from cert_study.quality import coverage_report, promote_gcp_gail_questions
 from cert_study.reporting import render_session_report, write_session_report
 from cert_study.seed_public import seed_public_banks
@@ -136,6 +137,80 @@ class StudySystemTests(unittest.TestCase):
         self.assertEqual({row["source_type"] for row in selected}, {"licensed_private"})
         self.assertEqual({row["source_tier"] for row in selected}, {"licensed_private"})
 
+    def test_source_backed_mode_excludes_known_broken_questions(self) -> None:
+        concept = self.conn.execute("SELECT id FROM concepts WHERE id = 'SQLD-C-SELECT'").fetchone()["id"]
+        rows = [
+            {
+                "id": "SQLD-BROKEN-Q1",
+                "exam_id": "SQLD",
+                "domain_id": "SQLD-D2",
+                "concept_id": concept,
+                "question_text": "수리 필요로 표시된 문항입니다.",
+                "choices_json": json.dumps(["A", "B", "C", "D"]),
+                "answer": 1,
+                "explanation": "수리 필요 문항은 source-backed 세션에서 제외한다.",
+                "difficulty": "medium",
+                "source_type": "licensed_private",
+                "source_ref": "broken-fixture",
+                "source_tier": "licensed_private",
+                "quality_status": "needs_repair",
+            },
+            {
+                "id": "SQLD-GOOD-Q1",
+                "exam_id": "SQLD",
+                "domain_id": "SQLD-D2",
+                "concept_id": concept,
+                "question_text": "출제 가능한 문항입니다.",
+                "choices_json": json.dumps(["A", "B", "C", "D"]),
+                "answer": 1,
+                "explanation": "출제 가능한 private 문항입니다.",
+                "difficulty": "medium",
+                "source_type": "licensed_private",
+                "source_ref": "broken-fixture",
+                "source_tier": "licensed_private",
+                "quality_status": "needs_review",
+            },
+        ]
+        self.conn.executemany(
+            """
+            INSERT INTO questions
+            (id, exam_id, domain_id, concept_id, question_text, choices_json, answer, explanation, difficulty,
+             source_type, source_ref, source_tier, quality_status)
+            VALUES
+            (:id, :exam_id, :domain_id, :concept_id, :question_text, :choices_json, :answer, :explanation,
+             :difficulty, :source_type, :source_ref, :source_tier, :quality_status)
+            """,
+            rows,
+        )
+        self.conn.commit()
+
+        first = create_session(self.conn, exam_id="SQLD", count=1, mode="source-backed", seed=31)
+        selected = session_question_ids(self.conn, first.session_id)
+
+        self.assertIn("SQLD-GOOD-Q1", selected)
+        self.assertNotIn("SQLD-BROKEN-Q1", selected)
+
+    def test_custom_mode_excludes_known_broken_questions(self) -> None:
+        concept = self.conn.execute("SELECT id FROM concepts WHERE id = 'SQLD-C-SELECT'").fetchone()["id"]
+        self.conn.execute(
+            """
+            INSERT INTO questions
+            (id, exam_id, domain_id, concept_id, question_text, choices_json, answer, explanation, difficulty,
+             source_type, source_ref, source_tier, quality_status)
+            VALUES
+            (?, 'SQLD', 'SQLD-D2', ?, '수리 필요로 표시된 일반 모드 문항입니다.', ?, 1,
+             '수리 필요 문항은 일반 CBT에서도 제외한다.', 'medium',
+             'licensed_private', 'broken-fixture', 'licensed_private', 'needs_repair')
+            """,
+            ("SQLD-BROKEN-CUSTOM-Q1", concept, json.dumps(["A", "B", "C", "D"])),
+        )
+        self.conn.commit()
+
+        session = create_session(self.conn, exam_id="SQLD", count=20, mode="custom-cbt", seed=32)
+        selected = session_question_ids(self.conn, session.session_id)
+
+        self.assertNotIn("SQLD-BROKEN-CUSTOM-Q1", selected)
+
     def test_custom_20_question_session_uses_sqld_domain_ratio(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=20, mode="custom-cbt", seed=7)
         rows = self.conn.execute(
@@ -172,6 +247,100 @@ class StudySystemTests(unittest.TestCase):
         second_ids = set(session_question_ids(self.conn, second.session_id))
 
         self.assertTrue(first_ids.isdisjoint(second_ids))
+
+    def test_session_avoids_duplicate_question_text_when_possible(self) -> None:
+        concept = self.conn.execute("SELECT id FROM concepts WHERE id = 'SQLD-C-SELECT'").fetchone()["id"]
+        rows = [
+            {
+                "id": "SQLD-DUP-Q1",
+                "exam_id": "SQLD",
+                "domain_id": "SQLD-D2",
+                "concept_id": concept,
+                "question_text": "동일 지문을 가진 중복 문항입니다.",
+                "choices_json": json.dumps(["A", "B", "C", "D"]),
+                "answer": 1,
+                "explanation": "중복 회피 테스트입니다.",
+                "difficulty": "medium",
+                "source_type": "licensed_private",
+                "source_ref": "duplicate-fixture",
+                "source_tier": "licensed_private",
+                "quality_status": "active",
+            },
+            {
+                "id": "SQLD-DUP-Q2",
+                "exam_id": "SQLD",
+                "domain_id": "SQLD-D2",
+                "concept_id": concept,
+                "question_text": "동일 지문을 가진 중복 문항입니다.",
+                "choices_json": json.dumps(["A", "B", "C", "D"]),
+                "answer": 1,
+                "explanation": "중복 회피 테스트입니다.",
+                "difficulty": "medium",
+                "source_type": "licensed_private",
+                "source_ref": "duplicate-fixture",
+                "source_tier": "licensed_private",
+                "quality_status": "active",
+            },
+            {
+                "id": "SQLD-DUP-Q3",
+                "exam_id": "SQLD",
+                "domain_id": "SQLD-D2",
+                "concept_id": concept,
+                "question_text": "중복되지 않은 대체 문항입니다.",
+                "choices_json": json.dumps(["A", "B", "C", "D"]),
+                "answer": 1,
+                "explanation": "중복 회피 테스트입니다.",
+                "difficulty": "medium",
+                "source_type": "licensed_private",
+                "source_ref": "duplicate-fixture",
+                "source_tier": "licensed_private",
+                "quality_status": "active",
+            },
+        ]
+        self.conn.executemany(
+            """
+            INSERT INTO questions
+            (id, exam_id, domain_id, concept_id, question_text, choices_json, answer, explanation, difficulty,
+             source_type, source_ref, source_tier, quality_status)
+            VALUES
+            (:id, :exam_id, :domain_id, :concept_id, :question_text, :choices_json, :answer, :explanation,
+             :difficulty, :source_type, :source_ref, :source_tier, :quality_status)
+            """,
+            rows,
+        )
+        self.conn.execute(
+            """
+            UPDATE questions
+            SET quality_status = 'active',
+                validity_status = 'current',
+                official_checked_at = '2026-07-04',
+                correct_rationale = '정답 선택지는 요구 조건을 직접 만족합니다.',
+                distractor_rationales_json = '{"2":"2번은 요구 조건을 만족하지 못합니다.","3":"3번은 요구 조건을 만족하지 못합니다.","4":"4번은 요구 조건을 만족하지 못합니다."}',
+                review_concepts_json = '["SELECT"]',
+                official_scope_refs_json = '["SQLD-D2-SELECT"]',
+                gold_status = 'gold',
+                gold_checked_at = '2026-07-04'
+            WHERE id IN ('SQLD-DUP-Q1', 'SQLD-DUP-Q2', 'SQLD-DUP-Q3')
+            """
+        )
+        self.conn.commit()
+
+        session = create_session(self.conn, exam_id="SQLD", count=2, mode="exam-ready", seed=30)
+        selected_texts = [
+            row["question_text"]
+            for row in self.conn.execute(
+                """
+                SELECT q.question_text
+                FROM session_questions sq
+                JOIN questions q ON q.id = sq.question_id
+                WHERE sq.session_id = ?
+                ORDER BY sq.position
+                """,
+                (session.session_id,),
+            ).fetchall()
+        ]
+
+        self.assertEqual(len(selected_texts), len(set(selected_texts)))
 
     def test_review_mode_prioritizes_due_wrong_questions(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=12)
@@ -282,6 +451,7 @@ class StudySystemTests(unittest.TestCase):
         tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
         self.assertIn("list_exams", tool_names)
         self.assertIn("start_session", tool_names)
+        self.assertIn("final_audit_report", tool_names)
         self.assertIn("prepare_notion_sync", tool_names)
         start_tool = next(tool for tool in tools_response["result"]["tools"] if tool["name"] == "start_session")
         self.assertIn("mode", start_tool["inputSchema"]["properties"])
@@ -467,13 +637,14 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(row["storage_policy"], "raw_allowed")
         self.assertEqual(row["validity_status"], "needs_official_check")
 
-    def test_exam_ready_mode_uses_only_active_internal_quality_questions(self) -> None:
+    def test_exam_ready_mode_uses_only_gold_internal_quality_questions(self) -> None:
         payload = exam_ready_payload(
             [
                 ("Q-ACTIVE-1", "open_license", "active", "current", 1),
                 ("Q-ACTIVE-2", "open_license", "active", "current", 2),
                 ("Q-SYNTHETIC", "synthetic", "active", "current", 3),
                 ("Q-REVIEW", "open_license", "needs_review", "needs_official_check", 4),
+                ("Q-NON-GOLD", "open_license", "active", "current", 1, "candidate"),
             ]
         )
         path = Path(self.tmp.name) / "exam_ready_bank.json"
@@ -484,6 +655,68 @@ export const PRACTICE_QUESTIONS: Question[] = [
         selected = set(session_question_ids(self.conn, first.session_id))
 
         self.assertEqual(selected, {"Q-ACTIVE-1", "Q-ACTIVE-2"})
+
+    def test_final_audit_blocks_placeholder_explanation_and_generic_concept(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-ACTIVE-1", "open_license", "active", "current", 1),
+                ("Q-ACTIVE-2", "open_license", "active", "current", 2),
+            ],
+            concept_id="ER-SRC-C-D1",
+            explanation="정답표 기준 정답은 1번입니다. 세부 해설은 오답노트에서 보강합니다.",
+        )
+        path = Path(self.tmp.name) / "bad_gold_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        report = audit_final_bank(self.conn, "EXAM_READY_TEST")
+        rendered = render_final_audit_report(report)
+
+        self.assertFalse(report["ready"])
+        self.assertIn("placeholder_explanation", {issue["code"] for issue in report["issues"]})
+        self.assertIn("generic_concept", {issue["code"] for issue in report["issues"]})
+        self.assertIn("최종 사용 가능", rendered)
+
+    def test_final_audit_passes_gold_bank_with_rationales_and_scope_refs(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-ACTIVE-1", "open_license", "active", "current", 1),
+                ("Q-ACTIVE-2", "open_license", "active", "current", 2),
+            ]
+        )
+        path = Path(self.tmp.name) / "good_gold_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        report = audit_final_bank(self.conn, "EXAM_READY_TEST")
+
+        self.assertTrue(report["ready"])
+        self.assertEqual(report["gold_questions"], 2)
+        self.assertEqual(report["issues"], [])
+
+    def test_promote_gold_candidates_requires_full_rationale_fields(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-CANDIDATE-GOOD", "open_license", "active", "current", 1, "candidate"),
+                ("Q-CANDIDATE-BAD", "open_license", "active", "current", 2, "candidate"),
+            ]
+        )
+        for question in payload["questions"]:
+            if question["id"] == "Q-CANDIDATE-BAD":
+                question["correct_rationale"] = ""
+        path = Path(self.tmp.name) / "candidate_gold_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        result = promote_gold_candidates(self.conn, "EXAM_READY_TEST", checked_at="2026-07-04")
+
+        self.assertEqual(result["promoted"], 1)
+        statuses = {
+            row["id"]: row["gold_status"]
+            for row in self.conn.execute("SELECT id, gold_status FROM questions WHERE exam_id = 'EXAM_READY_TEST'")
+        }
+        self.assertEqual(statuses["Q-CANDIDATE-GOOD"], "gold")
+        self.assertEqual(statuses["Q-CANDIDATE-BAD"], "candidate")
 
     def test_exam_ready_mode_fails_when_real_quality_bank_is_not_enough(self) -> None:
         with self.assertRaisesRegex(ValueError, "exam-ready"):
@@ -800,10 +1033,20 @@ def answer_all_with_correct_answers(conn, session_id: str) -> None:
 
 
 def exam_ready_payload(
-    question_rows: list[tuple[str, str, str, str, int]],
+    question_rows: list[tuple[str, str, str, str, int] | tuple[str, str, str, str, int, str]],
     *,
     official_count: int = 2,
+    concept_id: str = "ER-C1",
+    explanation: str = "정답 선택지가 맞는 이유와 오답 선택지가 틀린 이유를 구분해 설명하는 검수 완료 문항입니다.",
 ) -> dict:
+    def gold_status_for(row: tuple) -> str:
+        if len(row) == 6:
+            return str(row[5])
+        source_tier = str(row[1])
+        quality_status = str(row[2])
+        validity_status = str(row[3])
+        return "gold" if source_tier != "synthetic" and quality_status == "active" and validity_status == "current" else "none"
+
     return {
         "exam": {
             "id": "EXAM_READY_TEST",
@@ -814,17 +1057,25 @@ def exam_ready_payload(
             "domain_min_score": 0,
         },
         "domains": [{"id": "ER-D1", "name": "품질 영역", "official_weight": 100, "official_question_count": official_count}],
-        "concepts": [{"id": "ER-C1", "domain_id": "ER-D1", "name": "품질 개념", "review_note": "실전 출제 가능한 문제만 고른다."}],
+        "concepts": [{"id": concept_id, "domain_id": "ER-D1", "name": "세부 품질 개념", "review_note": "실전 출제 가능한 문제만 고른다."}],
         "questions": [
             {
                 "id": question_id,
                 "domain_id": "ER-D1",
-                "concept_id": "ER-C1",
+                "concept_id": concept_id,
                 "question_type": "single_choice",
                 "question_text": f"{question_id} 문항",
                 "choices": ["1", "2", "3", "4"],
                 "answer_json": {"choices": [answer]},
-                "explanation": "품질 상태 테스트 문항입니다.",
+                "explanation": explanation,
+                "correct_rationale": f"{answer}번은 요구 조건을 직접 만족하므로 정답입니다.",
+                "distractor_rationales": {
+                    str(idx): f"{idx}번은 요구 조건을 만족하지 못하므로 오답입니다."
+                    for idx in range(1, 5)
+                    if idx != answer
+                },
+                "review_concepts": ["세부 품질 개념"],
+                "official_scope_refs": ["EXAM_READY_TEST-D1-C1"],
                 "difficulty": "medium",
                 "source_type": "public_license" if source_tier != "synthetic" else "synthetic",
                 "source_ref": "unit-test",
@@ -835,9 +1086,13 @@ def exam_ready_payload(
                 "quality_status": quality_status,
                 "scope_version": "2026",
                 "official_checked_at": "2026-07-03" if quality_status == "active" else "",
+                "gold_status": gold_status,
+                "gold_checked_at": "2026-07-04" if gold_status == "gold" else "",
                 "quality_notes": "unit test",
             }
-            for question_id, source_tier, quality_status, validity_status, answer in question_rows
+            for row in question_rows
+            for question_id, source_tier, quality_status, validity_status, answer in [row[:5]]
+            for gold_status in [gold_status_for(row)]
         ],
     }
 

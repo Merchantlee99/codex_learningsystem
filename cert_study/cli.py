@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
+from .gold import audit_final_bank, export_gold_template, promote_gold_candidates, render_final_audit_report
 from .importer import import_bank_file
 from .importers.chathuranga_saa import (
     convert_chathuranga_saa_markdown,
@@ -54,9 +55,16 @@ def build_parser() -> argparse.ArgumentParser:
     stats = sub.add_parser("stats", help="문제은행 통계를 보여줍니다.")
     stats.set_defaults(func=cmd_stats)
 
-    coverage = sub.add_parser("coverage", help="공식 출제 비중 기준으로 exam-ready 문제은행 품질을 점검합니다.")
+    coverage = sub.add_parser("coverage", help="공식 출제 비중 기준으로 gold exam-ready 문제은행 품질을 점검합니다.")
     coverage.add_argument("--exam", default="SQLD")
     coverage.set_defaults(func=cmd_coverage)
+
+    audit = sub.add_parser("audit", help="최종 학습 가능 상태를 검수합니다.")
+    audit_sub = audit.add_subparsers(required=True)
+
+    audit_final = audit_sub.add_parser("final", help="gold 문제은행이 바로 학습 가능한지 검수합니다.")
+    audit_final.add_argument("--exam", default="SQLD")
+    audit_final.set_defaults(func=cmd_audit_final)
 
     bank = sub.add_parser("bank", help="개인 문제은행 import를 관리합니다.")
     bank_sub = bank.add_subparsers(required=True)
@@ -65,6 +73,23 @@ def build_parser() -> argparse.ArgumentParser:
     bank_import.add_argument("path", type=Path)
     bank_import.add_argument("--private", action="store_true", help="개인 소유 요약/오답 기반 문제은행 import를 허용합니다.")
     bank_import.set_defaults(func=cmd_bank_import)
+
+    bank_promote_gold = bank_sub.add_parser(
+        "promote-gold",
+        help="근거 필드가 완성된 candidate 문항을 gold_status=gold로 승격합니다.",
+    )
+    bank_promote_gold.add_argument("--exam", required=True)
+    bank_promote_gold.add_argument("--checked-at", required=True, help="검수일. 예: 2026-07-04")
+    bank_promote_gold.add_argument("--dry-run", action="store_true", help="승격 가능 여부만 확인하고 DB를 수정하지 않습니다.")
+    bank_promote_gold.set_defaults(func=cmd_bank_promote_gold)
+
+    bank_export_gold = bank_sub.add_parser(
+        "export-gold-template",
+        help="현재 DB의 문항을 gold 검수용 JSON 템플릿으로 내보냅니다. 출력 파일은 private_banks/gold_banks/에 두는 것을 권장합니다.",
+    )
+    bank_export_gold.add_argument("--exam", required=True)
+    bank_export_gold.add_argument("output", type=Path)
+    bank_export_gold.set_defaults(func=cmd_bank_export_gold_template)
 
     bank_convert_gcp = bank_sub.add_parser(
         "convert-gcp-gail",
@@ -170,7 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode",
         default="custom-cbt",
         choices=["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "source-backed"],
-        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
+        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 gold 문항만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
     )
     start.add_argument("--seed", type=int, help="문항 선택을 재현하기 위한 seed입니다.")
     start.set_defaults(func=cmd_session_start)
@@ -225,6 +250,8 @@ def cmd_stats(args: argparse.Namespace) -> int:
               COUNT(
                 DISTINCT CASE
                   WHEN q.quality_status = 'active'
+                   AND q.validity_status = 'current'
+                   AND q.gold_status = 'gold'
                    AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
                    AND q.question_type = 'single_choice'
                   THEN q.id
@@ -273,6 +300,13 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit_final(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        report = audit_final_bank(conn, args.exam)
+    print(render_final_audit_report(report))
+    return 0 if report["ready"] else 2
+
+
 def cmd_bank_import(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
         result = import_bank_file(conn, args.path, private=args.private)
@@ -280,6 +314,32 @@ def cmd_bank_import(args: argparse.Namespace) -> int:
         f"문제은행 import 완료: {result['exam_id']} "
         f"도메인 {result['domains']}개, 개념 {result['concepts']}개, 문항 {result['questions']}개"
     )
+    return 0
+
+
+def cmd_bank_promote_gold(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        result = promote_gold_candidates(
+            conn,
+            args.exam,
+            checked_at=args.checked_at,
+            dry_run=bool(args.dry_run),
+        )
+    print(
+        f"gold 승격 점검 완료: {result['exam_id']} 후보 {result['candidates']}문항, "
+        f"승격 가능 {result['promoted']}문항, 제외 {result['skipped']}문항"
+    )
+    if result["skipped_examples"]:
+        print("제외 예시:")
+        for row in result["skipped_examples"]:
+            print(f"- {row['question_id']}: {', '.join(row['codes'])}")
+    return 0
+
+
+def cmd_bank_export_gold_template(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        result = export_gold_template(conn, args.exam, args.output)
+    print(f"gold 검수 템플릿 생성 완료: {result['output']} ({result['questions']}문항)")
     return 0
 
 

@@ -17,6 +17,7 @@
 | 같은 개념을 반복해서 틀려도 추적이 약함 | 반복 오답 개념과 복습 큐를 별도로 관리 |
 | 노트 정리가 별도 일이 됨 | Obsidian에서 읽을 수 있는 Markdown 오답노트 생성 |
 | 공개 repo에 문제 원문을 쌓기 쉬움 | 공개 seed는 SQLD 합성 데모 문항으로 제한 |
+| 검수 전 문제와 실전용 문제가 섞임 | `source-backed`와 `exam-ready`를 분리하고, `exam-ready`는 gold 검수 통과 문항만 사용 |
 
 ```mermaid
 flowchart TD
@@ -43,6 +44,7 @@ flowchart TD
 | 리포트 | `cert_study/reporting.py` | 점수, 합격선, 오답, 복습 개념을 Markdown으로 생성 |
 | Obsidian 내보내기 | `cert_study/obsidian.py` | 세션 노트, 개념 노트, 복습 큐 생성 |
 | Notion 하네스 | `cert_study/notion_sync.py` | 기본 비활성. 실제 쓰기 전 계획만 생성 |
+| Gold 검수 | `cert_study/gold.py` | 최종 학습용 문제은행의 해설, 오답 근거, 개념 매핑, 출제범위 참조를 점검 |
 | 공개 seed | `cert_study/seed_sqld.py` | SQLD 합성 데모 문항 50개 |
 | import 구조 | `cert_study/importer.py`, `cert_study/importers/` | 로컬 문제은행을 DB로 가져오는 확장 표면 |
 | Codex skill | `skills/cert-study/SKILL.md` | 한 문제씩 출제하고 정답표를 미리 공개하지 않도록 하는 운영 규칙 |
@@ -83,6 +85,13 @@ python3 -m cert_study session start --exam SQLD --count 10 --mode weak-cbt
 python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 ```
 
+최종 학습용 gold 문제은행 점검:
+
+```bash
+python3 -m cert_study audit final --exam SQLD
+python3 -m cert_study session start --exam SQLD --count 20 --mode exam-ready
+```
+
 ## 견본 플러그인으로 쓰는 방법
 
 처음 보는 사람은 이 repo를 문제은행이 아니라 플러그인 골격으로 보면 됩니다.
@@ -90,13 +99,39 @@ python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 1. SQLD 데모 seed로 CBT 흐름이 어떻게 동작하는지 확인합니다.
 2. `examples/private_bank.example.json` 형식으로 자기 과목의 JSON/YAML 문제은행을 만듭니다.
 3. 실제 학습 자료는 `private_banks/` 아래에서 로컬 import하고 공개 repo에는 올리지 않습니다.
+4. 검수 전에는 `source-backed`, 최종 검수 후에는 `exam-ready`로 풉니다.
 
 ```bash
 python3 -m cert_study bank import private_banks/my-bank.json --private
-python3 -m cert_study session start --exam MY_EXAM --count 20
+python3 -m cert_study session start --exam MY_EXAM --count 20 --mode source-backed
 ```
 
 과목이 여러 개로 늘어나면 Python seed 파일을 추가로 만드는 대신, JSON/YAML import 경로를 유지하는 편이 좋습니다. 그래야 공개 코드와 개인 학습 자료가 섞이지 않습니다.
+
+## Gold 문제은행 기준
+
+이 프로젝트에서 `exam-ready`는 “출처가 있다” 정도가 아닙니다. 아래 조건을 통과한 `gold_status=gold` 문항만 실전 모드에 들어갑니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `correct_rationale` | 정답 선택지가 맞는 이유 |
+| `distractor_rationales` | 오답 선택지별로 틀린 이유 |
+| `review_concepts` | 오답노트와 복습 큐에 연결할 세부 개념 |
+| `official_scope_refs` | 공식 출제범위 또는 시험 가이드 기준 참조 |
+| `gold_status` | `candidate`에서 검수 후 `gold`로 승격 |
+| `gold_checked_at` | 마지막 gold 검수일 |
+
+권장 흐름:
+
+```bash
+python3 -m cert_study bank export-gold-template --exam SQLD private_banks/gold_banks/sqld_gold_review.json
+# JSON을 보강한 뒤
+python3 -m cert_study bank import private_banks/gold_banks/sqld_gold_review.json --private
+python3 -m cert_study bank promote-gold --exam SQLD --checked-at 2026-07-04
+python3 -m cert_study audit final --exam SQLD
+```
+
+`audit final`에서 부족한 해설, 임시 개념 매핑, 공식 출제범위 참조 누락, 영역별 문항 수 부족이 나오면 아직 최종 학습용으로 보지 않습니다.
 
 ## Codex에서 쓰는 흐름
 
@@ -147,6 +182,8 @@ python3 -m cert_study session start --exam SQLD --count 20 --mode source-backed
 
 문항 수가 늘어나면 엔진은 미노출 문제를 먼저 내고, 최근에 본 문제는 뒤로 밀며, 복습/약점 모드에서는 오답 이력이 있는 개념을 우선합니다.
 
+검수 전 문항을 바로 실전 모드로 쓰지는 않습니다. `source-backed`는 원천 기반 학습과 정제 단계, `exam-ready`는 gold 검수 통과 후 최종 학습 단계입니다.
+
 ## 검증
 
 ```bash
@@ -164,6 +201,8 @@ python3 -m pytest -q
 - Obsidian Markdown 내보내기
 - Notion 동기화 기본 비활성
 - 공개 repo에 개인 문제은행 없이도 플러그인 구조가 동작함
+- gold 문제은행 최종 검수
+- `exam-ready`가 gold 문항만 출제하는지 확인
 
 ## 포트폴리오 포인트
 
