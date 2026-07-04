@@ -30,10 +30,8 @@ cert_study/
   notion_sync.py  기본 비활성 Notion 쓰기 계획 하네스
   obsidian.py     Obsidian 세션/개념/복습 큐 노트 생성
   reporting.py    Markdown 리포트 렌더링
-  seed_public.py  공개 합성 문제은행 seed 묶음
+  seed_public.py  공개 SQLD 데모 seed entrypoint
   seed_sqld.py    SQLD 합성 문제 seed
-  seed_adsp.py    ADsP 합성 문제 seed
-  seed_info_processing.py 정보처리기사 합성 문제 seed
 
 skills/cert-study/SKILL.md
   Codex가 CBT 감독관처럼 행동하기 위한 규칙
@@ -78,7 +76,7 @@ review-cbt: 복습 예정 오답 -> 오답 이력 문제 -> 미노출 -> 오래 
 weak-cbt: 자주 틀린 개념 -> 복습 예정 -> 미노출 -> 오래 전에 푼 문제
 ```
 
-공개 seed는 정규 1회분 수준이라 금방 반복됩니다. 이 우선순위는 `private_banks/`로 개인 문제은행을 키웠을 때 같은 문제만 푸는 문제를 줄이기 위한 장치입니다.
+공개 seed는 SQLD 데모 수준이라 금방 반복됩니다. 이 우선순위는 로컬 문제은행을 키웠을 때 같은 문제만 푸는 문제를 줄이기 위한 장치입니다.
 
 ## 검증 기준
 
@@ -92,7 +90,7 @@ python3 /Users/isanginn/.codex/skills/.system/plugin-creator/scripts/validate_pl
 기대하는 검증 범위:
 
 - DB 초기화
-- 공개 문제은행 크기
+- SQLD 공개 seed 크기
 - 도메인별 문항 배분
 - 미노출 우선 출제
 - 복습 예정/오답 우선 출제

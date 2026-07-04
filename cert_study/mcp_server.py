@@ -6,7 +6,6 @@ from typing import Any
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
-from .importers.info_processing import inspect_info_processing_archives, render_info_processing_archive_report
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .quality import coverage_report, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
@@ -16,27 +15,15 @@ from .seed_public import seed_public_banks
 PROTOCOL_VERSION = "2024-11-05"
 
 
-PLANNED_EXAMS: list[dict[str, str]] = [
-    {"id": "AWS_AI_PRACTITIONER", "name": "AWS Certified AI Practitioner", "status": "planned"},
-    {"id": "AWS_CLOUD_PRACTITIONER", "name": "AWS Certified Cloud Practitioner", "status": "planned"},
-    {
-        "id": "AWS_SOLUTIONS_ARCHITECT_ASSOCIATE",
-        "name": "AWS Certified Solutions Architect Associate",
-        "status": "planned",
-    },
-    {"id": "GCP_GENERATIVE_AI_LEADER", "name": "Google Cloud Generative AI Leader", "status": "planned"},
-]
-
-
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "init_study_db",
-        "description": "로컬 SQLite 학습 DB를 초기화하고 SQLD, ADsP, 정보처리기사 공개 합성 훈련 문항을 seed한다.",
+        "description": "로컬 SQLite 학습 DB를 초기화하고 SQLD 공개 데모 문항을 seed한다.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "list_exams",
-        "description": "현재 실제 문제은행으로 지원되는 시험과 계획 단계 과목을 확인한다.",
+        "description": "현재 로컬 DB에 실제 문제은행이 있는 시험을 확인한다.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
@@ -65,16 +52,6 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {"exam": {"type": "string", "default": "SQLD"}},
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "inspect_info_processing_archives",
-        "description": "정보처리기사 private ZIP/PDF 후보를 점검한다. 원문 import나 공개 저장은 하지 않는다.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
             "additionalProperties": False,
         },
     },
@@ -139,7 +116,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.3.4"},
+                "serverInfo": {"name": "cert-study", "version": "0.3.5"},
             },
         )
     if method == "tools/list":
@@ -197,21 +174,16 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                     """
                 ).fetchall()
             ]
-        available_ids = {row["id"] for row in supported}
-        planned = [row for row in PLANNED_EXAMS if row["id"] not in available_ids]
         payload = {
             "available": supported,
-            "planned": planned,
-            "note": "현재 CBT 세션으로 실제 출제 가능한 문제은행은 available 항목뿐입니다. 공개 seed는 데모 1회분 수준이며, 실전 학습은 private_banks import로 확장합니다.",
+            "planned": [],
+            "note": "현재 CBT 세션으로 실제 출제 가능한 문제은행은 available 항목뿐입니다. 공개 기본값은 SQLD 데모이며, 다른 과목은 로컬 import 후에만 나타납니다.",
         }
         lines = ["현재 실제 출제 가능한 과목:"]
         lines.extend(
             f"- {row['id']}: {row['name']} ({row['available_questions']}문항, exam-ready {row['exam_ready_questions']}문항, {row['bank_rounds']:g}회분)"
             for row in supported
         )
-        lines.append("")
-        lines.append("계획 단계 과목:")
-        lines.extend(f"- {row['id']}: {row['name']}" for row in planned)
         return text_result("\n".join(lines), payload)
 
     if name == "start_session":
@@ -232,12 +204,6 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with ready_conn() as conn:
             report = coverage_report(conn, arguments.get("exam", "SQLD"))
         return text_result(render_coverage_report(report), report)
-
-    if name == "inspect_info_processing_archives":
-        from pathlib import Path
-
-        report = inspect_info_processing_archives(Path(arguments["path"]))
-        return text_result(render_info_processing_archive_report(report), report)
 
     if name == "submit_answer":
         with ready_conn() as conn:

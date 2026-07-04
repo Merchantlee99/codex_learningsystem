@@ -42,7 +42,7 @@ class StudySystemTests(unittest.TestCase):
         count = self.conn.execute("SELECT COUNT(*) AS n FROM questions WHERE exam_id = 'SQLD'").fetchone()["n"]
         self.assertEqual(count, 50)
 
-    def test_public_seed_banks_cover_adsp_and_info_processing(self) -> None:
+    def test_public_seed_bank_is_sqld_only_demo(self) -> None:
         counts = {
             row["exam_id"]: row["n"]
             for row in self.conn.execute(
@@ -50,36 +50,36 @@ class StudySystemTests(unittest.TestCase):
             ).fetchall()
         }
 
+        self.assertEqual(set(counts), {"SQLD"})
         self.assertEqual(counts["SQLD"], 50)
-        self.assertEqual(counts["ADSP"], 50)
-        self.assertEqual(counts["KR_INFO_PROCESSING_ENGINEER"], 100)
 
     def test_source_backed_mode_filters_out_synthetic_questions(self) -> None:
         concept_by_domain = {
             row["domain_id"]: row["id"]
             for row in self.conn.execute(
-                "SELECT id, domain_id FROM concepts WHERE exam_id = 'KR_INFO_PROCESSING_ENGINEER' GROUP BY domain_id"
+                "SELECT id, domain_id FROM concepts WHERE exam_id = 'SQLD' GROUP BY domain_id"
             ).fetchall()
         }
         rows = []
         for idx, domain_id in enumerate(sorted(concept_by_domain), start=1):
-            rows.append(
-                {
-                    "id": f"IPE-PRIVATE-Q{idx}",
-                    "exam_id": "KR_INFO_PROCESSING_ENGINEER",
-                    "domain_id": domain_id,
-                    "concept_id": concept_by_domain[domain_id],
-                    "question_text": f"private source backed question {idx}",
-                    "choices_json": json.dumps(["A", "B", "C", "D"]),
-                    "answer": 1,
-                    "explanation": "private source backed explanation",
-                    "difficulty": "medium",
-                    "source_type": "licensed_private",
-                    "source_ref": "private-fixture",
-                    "source_tier": "licensed_private",
-                    "quality_status": "needs_review",
-                }
-            )
+            for offset in range(3):
+                rows.append(
+                    {
+                        "id": f"SQLD-PRIVATE-Q{idx}-{offset}",
+                        "exam_id": "SQLD",
+                        "domain_id": domain_id,
+                        "concept_id": concept_by_domain[domain_id],
+                        "question_text": f"private source backed question {idx}-{offset}",
+                        "choices_json": json.dumps(["A", "B", "C", "D"]),
+                        "answer": 1,
+                        "explanation": "private source backed explanation",
+                        "difficulty": "medium",
+                        "source_type": "licensed_private",
+                        "source_ref": "private-fixture",
+                        "source_tier": "licensed_private",
+                        "quality_status": "needs_review",
+                    }
+                )
         self.conn.executemany(
             """
             INSERT INTO questions
@@ -95,8 +95,8 @@ class StudySystemTests(unittest.TestCase):
 
         first = create_session(
             self.conn,
-            exam_id="KR_INFO_PROCESSING_ENGINEER",
-            count=5,
+            exam_id="SQLD",
+            count=2,
             mode="source-backed",
             seed=10,
         )
@@ -211,7 +211,7 @@ class StudySystemTests(unittest.TestCase):
     def test_custom_report_uses_exam_official_question_count(self) -> None:
         first = create_session(
             self.conn,
-            exam_id="KR_INFO_PROCESSING_ENGINEER",
+            exam_id="SQLD",
             count=5,
             mode="custom-cbt",
             seed=9,
@@ -221,8 +221,7 @@ class StudySystemTests(unittest.TestCase):
 
         report = render_session_report(self.conn, first.session_id)
 
-        self.assertIn("정규 100문항", report)
-        self.assertNotIn("정규 50문항", report)
+        self.assertIn("정규 50문항", report)
 
     def test_notion_sync_plan_is_disabled_by_default(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=5, mode="custom-cbt", seed=3)
@@ -267,13 +266,12 @@ class StudySystemTests(unittest.TestCase):
         exams = call_tool("list_exams", {})
         available_ids = {row["id"] for row in exams["structuredContent"]["available"]}
         self.assertIn("SQLD", available_ids)
-        self.assertIn("ADSP", available_ids)
-        self.assertIn("KR_INFO_PROCESSING_ENGINEER", available_ids)
+        self.assertNotIn("ADSP", available_ids)
+        self.assertNotIn("KR_INFO_PROCESSING_ENGINEER", available_ids)
         sqld = next(row for row in exams["structuredContent"]["available"] if row["id"] == "SQLD")
         self.assertEqual(sqld["available_questions"], 50)
         self.assertEqual(sqld["bank_rounds"], 1.0)
-        planned_ids = {row["id"] for row in exams["structuredContent"]["planned"]}
-        self.assertIn("AWS_AI_PRACTITIONER", planned_ids)
+        self.assertEqual(exams["structuredContent"]["planned"], [])
 
         call_tool("init_study_db", {})
         result = call_tool("start_session", {"exam": "SQLD", "count": 5, "seed": 4})
@@ -283,18 +281,6 @@ class StudySystemTests(unittest.TestCase):
         self.assertNotIn("[2/5]", text)
         self.assertNotIn("정답:", text)
         self.assertNotIn("정답표", text)
-
-    def test_adsp_and_info_processing_sessions_start_one_question_only(self) -> None:
-        call_tool("init_study_db", {})
-
-        for exam in ("ADSP", "KR_INFO_PROCESSING_ENGINEER"):
-            result = call_tool("start_session", {"exam": exam, "count": 5, "seed": 4})
-            text = result["content"][0]["text"]
-            self.assertIn("session_id:", text)
-            self.assertIn("[1/5]", text)
-            self.assertNotIn("[2/5]", text)
-            self.assertNotIn("정답:", text)
-            self.assertNotIn("정답표", text)
 
     def test_unsupported_exam_does_not_start_ad_hoc_generation(self) -> None:
         response = handle_message(
@@ -313,7 +299,6 @@ class StudySystemTests(unittest.TestCase):
         text = response["result"]["content"][0]["text"]
         self.assertIn("지원하지 않는 시험", text)
         self.assertIn("SQLD", text)
-        self.assertIn("ADSP", text)
 
     def test_skill_forbids_batch_generation_and_answer_keys(self) -> None:
         skill_text = (Path(__file__).resolve().parents[1] / "skills" / "cert-study" / "SKILL.md").read_text()
@@ -321,7 +306,7 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("문제 N개 줘", skill_text)
         self.assertIn("일반 답변으로 문제를 만들지 말고", skill_text)
         self.assertIn("세션 종료 전에는 정답표", skill_text)
-        self.assertIn("공개 repo에 기본 포함된 합성 문제은행은 SQLD, ADsP, 정보처리기사", skill_text)
+        self.assertIn("공개 repo에 기본 포함된 합성 문제은행은 SQLD 하나다", skill_text)
         self.assertIn("`available`에 없으면 문제를 임의 생성하지 말고", skill_text)
 
     def test_private_bank_import_requires_private_flag(self) -> None:
