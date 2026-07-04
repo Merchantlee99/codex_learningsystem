@@ -150,3 +150,4 @@ python3 /Users/isanginn/.codex/skills/.system/plugin-creator/scripts/validate_pl
 - final-mock 모드가 정규 문항 수와 gold 문항만 사용하는지
 - audit state가 최종 사용 가능 상태와 부족 작업량을 정확히 계산하는지
 - multiple_response 문항이 정확한 정답 세트 기준으로 채점되는지
+- `--count 1` 같은 작은 요청이 영역 배분 과정에서 0개 배정 영역의 문항을 추가로 끌고 오지 않는지

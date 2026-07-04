@@ -1,6 +1,6 @@
 {
   "name": "codex-learning-system",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "SQLD 합성 데모를 기본값으로 두고 사용자가 자기 문제은행을 붙여 확장할 수 있는 Codex CBT 학습 견본 플러그인.",
   "author": {
     "name": "Sanginn Lee",

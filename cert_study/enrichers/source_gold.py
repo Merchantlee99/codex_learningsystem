@@ -13,6 +13,7 @@ GENERIC_CONCEPT_MARKERS = (
     "SOURCE BACKED",
     "COMMUNITY PRACTICE",
 )
+MIN_SOURCE_EXPLANATION_CHARS = 20
 
 AWS_SAA_CONCEPTS = [
     ("AWS-SAA-C-S3-STORAGE", "S3와 스토리지 아키텍처", ("s3", "bucket", "storage", "ebs", "efs", "fsx")),
@@ -140,7 +141,7 @@ def usable_question(question: dict[str, Any]) -> bool:
     if any(not isinstance(choice, str) or not choice.strip() for choice in choices):
         return False
     explanation = str(question.get("explanation", "")).strip()
-    if len(explanation) < 30 or is_placeholder_explanation(explanation):
+    if len(explanation) < MIN_SOURCE_EXPLANATION_CHARS or is_placeholder_explanation(explanation):
         return False
     if has_visible_answer_leak(question):
         return False

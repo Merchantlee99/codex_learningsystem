@@ -192,6 +192,8 @@ def take_distinct_questions(
     need: int,
     selected_fingerprints: set[str],
 ) -> list[sqlite3.Row]:
+    if need <= 0:
+        return []
     selected: list[sqlite3.Row] = []
     deferred: list[sqlite3.Row] = []
     for row in ranked:

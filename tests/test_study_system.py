@@ -12,9 +12,16 @@ from cert_study.enrichers.sqld_gold import enrich_sqld_gold_payload
 from cert_study.enrichers.source_gold import enrich_source_gold_payload
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
 from cert_study.importer import import_bank_file
+from cert_study.importers.adsp_html import convert_adsp_html_sources, inspect_adsp_html_sources
 from cert_study.importers.chathuranga_saa import convert_chathuranga_saa_markdown, inspect_chathuranga_saa_markdown
 from cert_study.importers.gcp_gail import convert_gail_practice_questions_text
-from cert_study.importers.info_processing import inspect_info_processing_archives, parse_info_processing_exam_blocks
+from cert_study.importers.gcp_html import convert_gcp_gail_html_sources, parse_gcp_gail_html_file
+from cert_study.importers.info_processing import (
+    PatternLine,
+    inspect_info_processing_archives,
+    parse_info_processing_exam_blocks,
+    parse_info_processing_pattern_lines,
+)
 from cert_study.importers.kdata_text import convert_kdata_text_sources, inspect_kdata_text_sources
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
@@ -648,6 +655,51 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(row["storage_policy"], "raw_allowed")
         self.assertEqual(row["validity_status"], "needs_official_check")
 
+    def test_gcp_gail_html_converter_pairs_stems_with_answer_explanations(self) -> None:
+        source_dir = Path(self.tmp.name) / "gcp_html"
+        source_dir.mkdir()
+        source = source_dir / "sample.html"
+        source.write_text(
+            """
+<html>
+  <head><link rel="canonical" href="https://example.test/gcp-gail-practice"/></head>
+  <body>
+    <h3>Google Generative AI Leader Question 1</h3>
+    <p>A company wants a chatbot to answer from current policy documents. Which approach best grounds responses?</p>
+    <ul>
+      <li>❏ A. Train only on old support tickets</li>
+      <li>❏ B. Increase output length</li>
+      <li>❏ C. Use retrieval augmented generation with approved policy documents</li>
+      <li>❏ D. Raise temperature for more creative answers</li>
+    </ul>
+    <h2>Generative AI Leader Questions and Answers</h2>
+    <h3>Google Generative AI Leader Question 1</h3>
+    <p>A company wants a chatbot to answer from current policy documents. Which approach best grounds responses?</p>
+    <p>✓ C. Use retrieval augmented generation with approved policy documents</p>
+    <p>The correct answer is retrieval augmented generation because it retrieves current approved facts before generation and reduces unsupported answers.</p>
+    <p>Other options do not ground the model in the latest source documents.</p>
+  </body>
+</html>
+""",
+            encoding="utf-8",
+        )
+
+        parsed = parse_gcp_gail_html_file(source)
+        output = Path(self.tmp.name) / "gcp_html_bank.json"
+        report = convert_gcp_gail_html_sources(source_dir, output, mark_active=True, checked_at="2026-07-05")
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        import_result = import_bank_file(self.conn, output, private=True)
+        row = self.conn.execute("SELECT * FROM questions WHERE id LIKE 'GCP_GAIL_TSS_%'").fetchone()
+
+        self.assertEqual(len(parsed["questions"]), 1)
+        self.assertEqual(parsed["questions"][0]["answer"], 3)
+        self.assertEqual(report["questions"], 1)
+        self.assertEqual(import_result["exam_id"], "GCP_GENERATIVE_AI_LEADER")
+        self.assertEqual(payload["questions"][0]["source_type"], "licensed_private")
+        self.assertEqual(row["answer"], 3)
+        self.assertEqual(row["source_ref"], "https://example.test/gcp-gail-practice")
+        self.assertEqual(row["storage_policy"], "private_only")
+
     def test_exam_ready_mode_uses_only_gold_internal_quality_questions(self) -> None:
         payload = exam_ready_payload(
             [
@@ -666,6 +718,66 @@ export const PRACTICE_QUESTIONS: Question[] = [
         selected = set(session_question_ids(self.conn, first.session_id))
 
         self.assertEqual(selected, {"Q-ACTIVE-1", "Q-ACTIVE-2"})
+
+    def test_small_requested_count_does_not_select_zero_need_domains(self) -> None:
+        def question(question_id: str, domain_id: str, concept_id: str) -> dict:
+            return {
+                "id": question_id,
+                "domain_id": domain_id,
+                "concept_id": concept_id,
+                "question_type": "single_choice",
+                "question_text": f"{question_id} 문항",
+                "choices": ["1", "2", "3", "4"],
+                "answer_json": {"choices": [1]},
+                "explanation": "정답 선택지가 맞는 이유와 오답 선택지가 틀린 이유를 구분해 설명하는 검수 완료 문항입니다.",
+                "correct_rationale": "1번은 요구 조건을 직접 만족하므로 정답입니다.",
+                "distractor_rationales": {"2": "오답", "3": "오답", "4": "오답"},
+                "review_concepts": ["작은 count"],
+                "official_scope_refs": ["SMALL_COUNT_TEST"],
+                "difficulty": "medium",
+                "source_type": "public_license",
+                "source_ref": "unit-test",
+                "source_license": "MIT",
+                "source_tier": "open_license",
+                "storage_policy": "raw_allowed",
+                "validity_status": "current",
+                "quality_status": "active",
+                "official_checked_at": "2026-07-05",
+                "gold_status": "gold",
+                "gold_checked_at": "2026-07-05",
+            }
+
+        payload = {
+            "exam": {
+                "id": "SMALL_COUNT_TEST",
+                "name": "작은 count 테스트",
+                "official_question_count": 10,
+                "official_duration_minutes": 10,
+                "pass_score": 60,
+                "domain_min_score": 0,
+            },
+            "domains": [
+                {"id": "SCT-D1", "name": "1영역", "official_weight": 50, "official_question_count": 5},
+                {"id": "SCT-D2", "name": "2영역", "official_weight": 50, "official_question_count": 5},
+            ],
+            "concepts": [
+                {"id": "SCT-C1", "domain_id": "SCT-D1", "name": "1영역 개념", "review_note": "1영역"},
+                {"id": "SCT-C2", "domain_id": "SCT-D2", "name": "2영역 개념", "review_note": "2영역"},
+            ],
+            "questions": [
+                *[question(f"SCT-D1-Q{idx}", "SCT-D1", "SCT-C1") for idx in range(1, 6)],
+                *[question(f"SCT-D2-Q{idx}", "SCT-D2", "SCT-C2") for idx in range(1, 6)],
+            ],
+        }
+        path = Path(self.tmp.name) / "small_count_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        first = create_session(self.conn, exam_id="SMALL_COUNT_TEST", count=1, mode="final-mock", seed=1)
+        selected = session_question_ids(self.conn, first.session_id)
+
+        self.assertEqual(first.total, 1)
+        self.assertEqual(len(selected), 1)
 
     def test_final_audit_blocks_placeholder_explanation_and_generic_concept(self) -> None:
         payload = exam_ready_payload(
@@ -861,6 +973,87 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(report["exams"][0]["status"], "GREEN")
         self.assertEqual(report["exams"][0]["gold_gap_to_target"], 0)
 
+    def test_final_state_audit_hides_nonblocking_candidate_gaps_when_green(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-GOLD-1", "open_license", "active", "current", 1),
+                ("Q-GOLD-2", "open_license", "active", "current", 2),
+                ("Q-GOLD-3", "open_license", "active", "current", 3),
+                ("Q-GOLD-4", "open_license", "active", "current", 4),
+                ("Q-LEFTOVER-CANDIDATE", "open_license", "active", "current", 1, "candidate"),
+            ],
+            official_count=2,
+        )
+        payload["questions"][-1]["correct_rationale"] = ""
+        path = Path(self.tmp.name) / "final_state_green_with_leftover.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        report = audit_final_state(self.conn, min_rounds=2, exam_ids=["EXAM_READY_TEST"])
+        row = report["exams"][0]
+
+        self.assertTrue(report["final_ready"])
+        self.assertEqual(row["status"], "GREEN")
+        self.assertEqual(row["question_gap_codes"], {})
+        self.assertEqual(row["question_gap_samples"], [])
+
+    def test_final_state_audit_blocks_domain_gap_even_when_total_gold_is_enough(self) -> None:
+        payload = {
+            "exam": {
+                "id": "DOMAIN_GAP_TEST",
+                "name": "영역 부족 테스트",
+                "official_question_count": 4,
+                "official_duration_minutes": 10,
+                "pass_score": 60,
+                "domain_min_score": 0,
+            },
+            "domains": [
+                {"id": "DGT-D1", "name": "1영역", "official_weight": 50, "official_question_count": 2},
+                {"id": "DGT-D2", "name": "2영역", "official_weight": 50, "official_question_count": 2},
+            ],
+            "concepts": [
+                {"id": "DGT-C1", "domain_id": "DGT-D1", "name": "1영역 세부 개념", "review_note": "1영역"},
+                {"id": "DGT-C2", "domain_id": "DGT-D2", "name": "2영역 세부 개념", "review_note": "2영역"},
+            ],
+            "questions": [],
+        }
+        for idx in range(8):
+            payload["questions"].append(
+                {
+                    "id": f"DGT-Q{idx}",
+                    "domain_id": "DGT-D1" if idx < 6 else "DGT-D2",
+                    "concept_id": "DGT-C1" if idx < 6 else "DGT-C2",
+                    "question_type": "single_choice",
+                    "question_text": f"영역 편중 검증 문항 {idx}",
+                    "choices": ["1", "2", "3", "4"],
+                    "answer_json": {"choices": [1]},
+                    "explanation": "정답 선택지가 맞는 이유와 오답 선택지가 틀린 이유를 구분해 설명하는 검수 완료 문항입니다.",
+                    "correct_rationale": "1번은 요구 조건을 직접 만족하므로 정답입니다.",
+                    "distractor_rationales": {"2": "오답", "3": "오답", "4": "오답"},
+                    "review_concepts": ["영역 편중"],
+                    "official_scope_refs": ["DOMAIN_GAP_TEST"],
+                    "source_type": "public_license",
+                    "source_ref": "unit-test",
+                    "source_license": "MIT",
+                    "source_tier": "open_license",
+                    "validity_status": "current",
+                    "quality_status": "active",
+                    "official_checked_at": "2026-07-05",
+                    "gold_status": "gold",
+                    "gold_checked_at": "2026-07-05",
+                }
+            )
+        path = Path(self.tmp.name) / "domain_gap.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        report = audit_final_state(self.conn, min_rounds=2, exam_ids=["DOMAIN_GAP_TEST"])
+
+        self.assertFalse(report["final_ready"])
+        self.assertEqual(report["exams"][0]["status"], "YELLOW")
+        self.assertEqual(report["exams"][0]["gold_questions"], 8)
+        self.assertEqual(report["exams"][0]["domain_targets"][1]["gold_gap_to_target"], 2)
+
     def test_promote_gold_candidates_requires_full_rationale_fields(self) -> None:
         payload = exam_ready_payload(
             [
@@ -1006,6 +1199,32 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(questions[1]["choices"], ["기능 중심 개발", "개발 및 검증", "익스트림 프로그래밍", "칸반"])
         self.assertEqual(questions[1]["quality_status"], "needs_review")
 
+    def test_info_processing_pattern_parser_reads_highlighted_answer_and_explanation(self) -> None:
+        lines = [
+            PatternLine("1. 다음 릴레이션의 카디널리티와 차수가 옳게 나타낸 것은?"),
+            PatternLine("① 카디널리티 : 4, 차수 : 4"),
+            PatternLine("② 카디널리티 : 4, 차수 : 6", highlighted=True),
+            PatternLine("③ 카디널리티 : 6, 차수 : 4"),
+            PatternLine("④ 카디널리티 : 6, 차수 : 6"),
+            PatternLine("[ 해설 ]"),
+            PatternLine("테이블에 속한 튜플의 수를 카디널리티, 속성의 수를 차수라고 한다."),
+            PatternLine("카디널리티는 4, 차수는 6이다."),
+        ]
+
+        questions = parse_info_processing_pattern_lines(
+            lines,
+            source_ref="2026_must_calculation_41.zip/sample.pdf",
+            category="calculation",
+            mark_active=True,
+            checked_at="2026-07-05",
+        )
+
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0]["answer"], 2)
+        self.assertEqual(questions[0]["domain_id"], "IPE-D3")
+        self.assertIn("카디널리티", questions[0]["explanation"])
+        self.assertEqual(questions[0]["quality_status"], "active")
+
     def test_kdata_text_converter_builds_sqld_private_bank(self) -> None:
         source = Path(self.tmp.name) / "sqld_raw.txt"
         source.write_text(
@@ -1149,6 +1368,60 @@ const examData = [
         self.assertEqual(json.loads(rows[0]["choices_json"])[3], "고객")
         self.assertNotIn("해설", json.loads(rows[0]["choices_json"])[3])
         self.assertIn("SELECT COUNT(*)", rows[1]["question_text"])
+
+    def test_adsp_html_converter_reads_bold_answer_and_inline_explanation(self) -> None:
+        source = Path(self.tmp.name) / "adsp_bold.html"
+        source.write_text(
+            """
+<p>1. 다음 중 데이터 사이언티스트에 대한 설명으로 옳지 않은 것은?</p>
+<p>① 통계와 수학 지식이 필요하다.</p>
+<p>② 비즈니스 문제 이해가 중요하다.</p>
+<p>③ 분석 결과를 전달할 수 있어야 한다.</p>
+<p><b>④ 커뮤니케이션 기술은 중요하지 않다.</b></p>
+<table><tr><td>커뮤니케이션 기술은 데이터 사이언티스트의 중요한 소프트 스킬이다.</td></tr></table>
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "adsp_bold.json"
+
+        report = convert_adsp_html_sources(source, output, mark_active=True, checked_at="2026-07-05")
+        import_bank_file(self.conn, output, private=True)
+
+        self.assertEqual(report["converted_questions"], 1)
+        row = self.conn.execute("SELECT answer, explanation FROM questions WHERE id LIKE 'ADSP_HTML_%'").fetchone()
+        self.assertEqual(row["answer"], 4)
+        self.assertIn("소프트 스킬", row["explanation"])
+
+    def test_adsp_html_converter_maps_split_question_answer_anchors(self) -> None:
+        source = Path(self.tmp.name) / "adsp_anchor.html"
+        source.write_text(
+            """
+<p><a name="a1"></a></p>
+<p><b><span>문제 1.</span> 데이터베이스 구성요소 설명으로 옳은 것은?</b><a href="#answer1">정답확인</a></p>
+<table><tr><td>1) 테이블과 인덱스<br><br>2) 메타데이터와 인덱스<br><br>3) 속성과 테이블<br><br>4) 뷰와 테이블</td></tr></table>
+<p><a name="answer1"></a></p>
+<p>1. <b>정답 : <b>2</b></b></p>
+<p>문제확인</p>
+<p>해설 :</p>
+<table><tr><td>메타데이터는 데이터를 설명하는 데이터이고 인덱스는 검색을 빠르게 하는 자료구조이다.</td></tr></table>
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "adsp_anchor.json"
+
+        inspect_report = inspect_adsp_html_sources(source)
+        report = convert_adsp_html_sources(source, output, mark_active=True, checked_at="2026-07-05")
+        import_bank_file(self.conn, output, private=True)
+
+        self.assertEqual(inspect_report["convertible_questions"], 1)
+        self.assertEqual(report["converted_questions"], 1)
+        row = self.conn.execute(
+            "SELECT answer, question_text, choices_json, explanation FROM questions WHERE id LIKE 'ADSP_HTML_%'"
+        ).fetchone()
+        self.assertEqual(row["answer"], 2)
+        self.assertNotIn("정답확인", row["question_text"])
+        self.assertEqual(json.loads(row["choices_json"])[1], "메타데이터와 인덱스")
+        self.assertIn("자료구조", row["explanation"])
 
     def test_sqld_gold_enricher_adds_granular_concepts_and_rationales(self) -> None:
         payload = {

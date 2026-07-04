@@ -160,6 +160,24 @@ python3 -m cert_study audit final --exam SQLD
 
 `enrich-sqld-gold`는 SQLD 전용 보강기입니다. HTML 안에 문항/선택지/정답/해설/SQL 코드가 분리돼 있을 때 이를 CBT 지문으로 합치고, 세부 개념과 정답/오답 근거를 채워 `exam-ready` 후보를 만듭니다.
 
+ADsP, 정보처리기사, GCP Generative AI Leader처럼 소스 구조가 다른 과목은 전용 converter를 씁니다. 원천 HTML/PDF는 로컬 `private_banks/raw_sources/`에만 두고, 변환 결과도 private 경로 안에서만 관리합니다.
+
+```bash
+# ADsP Tistory형 HTML 원천
+python3 -m cert_study bank inspect-adsp-html private_banks/raw_sources/adsp
+python3 -m cert_study bank convert-adsp-html private_banks/raw_sources/adsp private_banks/import_ready/adsp/source_backed.json --mark-active --checked-at 2026-07-05
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/adsp/source_backed.json private_banks/gold_banks/adsp_gold.json --checked-at 2026-07-05 --scope-version 2026
+
+# 정보처리기사 2026 해설형 PDF/ZIP 원천
+python3 -m cert_study bank convert-info-processing-patterns private_banks/raw_sources/info_processing private_banks/import_ready/info_processing/source_backed.json --mark-active --checked-at 2026-07-05
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/info_processing/source_backed.json private_banks/gold_banks/info_processing_gold.json --checked-at 2026-07-05 --scope-version 2026
+
+# GCP Generative AI Leader 공개 HTML 연습문항 private 변환
+python3 -m cert_study bank inspect-gcp-gail-html private_banks/raw_sources/gcp
+python3 -m cert_study bank convert-gcp-gail-html private_banks/raw_sources/gcp private_banks/import_ready/gcp/source_backed.json --mark-active --checked-at 2026-07-05
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/gcp/source_backed.json private_banks/gold_banks/gcp_gold.json --checked-at 2026-07-05 --scope-version GAIL-2025-05-14
+```
+
 다른 과목에서 이미 문항, 선택지, 정답, 독립 해설이 들어 있는 source-backed JSON을 확보했다면 범용 보강기를 씁니다.
 
 ```bash
@@ -226,7 +244,9 @@ python3 -m cert_study session start --exam SQLD --count 20 --mode source-backed
 ## 검증
 
 ```bash
-python3 -m pytest -q
+python3 -m unittest discover -s tests
+python3 -m cert_study audit state --min-rounds 3
+python3 -m cert_study session start --exam SQLD --regular --mode final-mock --seed 1
 ```
 
 검증 범위:
@@ -242,6 +262,8 @@ python3 -m pytest -q
 - 공개 repo에 개인 문제은행 없이도 플러그인 구조가 동작함
 - gold 문제은행 최종 검수
 - `exam-ready`가 gold 문항만 출제하는지 확인
+- 작은 `--count` 요청이 요청 수보다 많이 출제되지 않는지 확인
+- `final-mock` 정규 세션에서 정답/해설이 먼저 노출되지 않는지 확인
 
 ## 포트폴리오 포인트
 

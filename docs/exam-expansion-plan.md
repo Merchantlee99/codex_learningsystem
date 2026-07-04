@@ -135,7 +135,21 @@ python3 -m cert_study audit final --exam SQLD
 python3 -m cert_study audit state --exam SQLD --min-rounds 3
 ```
 
-다른 과목은 source-backed JSON 안에 문항, 선택지, 정답, 독립 해설이 모두 들어 있을 때만 범용 gold 보강기를 쓴다.
+ADsP, 정보처리기사, GCP Generative AI Leader는 원천 구조가 달라서 먼저 전용 converter로 import-ready JSON을 만들고, 그 다음 범용 gold 보강기를 씁니다.
+
+```bash
+python3 -m cert_study bank convert-adsp-html private_banks/raw_sources/adsp private_banks/import_ready/adsp/source_backed.json --mark-active --checked-at 2026-07-05
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/adsp/source_backed.json private_banks/gold_banks/adsp_gold.json --checked-at 2026-07-05 --scope-version 2026
+
+python3 -m cert_study bank convert-info-processing-patterns private_banks/raw_sources/info_processing private_banks/import_ready/info_processing/source_backed.json --mark-active --checked-at 2026-07-05
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/info_processing/source_backed.json private_banks/gold_banks/info_processing_gold.json --checked-at 2026-07-05 --scope-version 2026
+
+python3 -m cert_study bank inspect-gcp-gail-html private_banks/raw_sources/gcp
+python3 -m cert_study bank convert-gcp-gail-html private_banks/raw_sources/gcp private_banks/import_ready/gcp/source_backed.json --mark-active --checked-at 2026-07-05
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/gcp/source_backed.json private_banks/gold_banks/gcp_gold.json --checked-at 2026-07-05 --scope-version GAIL-2025-05-14
+```
+
+다른 과목은 source-backed JSON 안에 문항, 선택지, 정답, 독립 해설이 모두 들어 있을 때만 범용 gold 보강기를 씁니다.
 
 ```bash
 python3 -m cert_study bank enrich-source-gold private_banks/import_ready/aws/source_backed.json private_banks/gold_banks/aws_gold.json --checked-at 2026-07-05 --scope-version SAA-C03

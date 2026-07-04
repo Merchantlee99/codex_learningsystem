@@ -26,12 +26,26 @@ from .importers.chathuranga_saa import (
     render_chathuranga_convert_report,
     render_chathuranga_inspect_report,
 )
+from .importers.adsp_html import (
+    convert_adsp_html_sources,
+    inspect_adsp_html_sources,
+    render_adsp_html_convert_report,
+    render_adsp_html_inspect_report,
+)
 from .importers.gcp_gail import SOURCE_REPOSITORY, convert_gail_exam_data_file
+from .importers.gcp_html import (
+    convert_gcp_gail_html_sources,
+    inspect_gcp_gail_html_sources,
+    render_gcp_gail_html_convert_report,
+    render_gcp_gail_html_inspect_report,
+)
 from .importers.info_processing import (
     convert_info_processing_archives,
+    convert_info_processing_pattern_archives,
     inspect_info_processing_archives,
     render_info_processing_archive_report,
     render_info_processing_convert_report,
+    render_info_processing_pattern_convert_report,
 )
 from .importers.kdata_text import (
     convert_kdata_text_sources,
@@ -158,6 +172,33 @@ def build_parser() -> argparse.ArgumentParser:
     bank_promote_gcp.add_argument("--checked-at", required=True, help="검수일. 예: 2026-07-03")
     bank_promote_gcp.set_defaults(func=cmd_bank_promote_gcp_gail)
 
+    bank_inspect_gcp_html = bank_sub.add_parser(
+        "inspect-gcp-gail-html",
+        help="GCP GAIL 공개 HTML 연습문항의 private 변환 가능 문항 수를 점검합니다.",
+    )
+    bank_inspect_gcp_html.add_argument("source", type=Path)
+    bank_inspect_gcp_html.set_defaults(func=cmd_bank_inspect_gcp_gail_html)
+
+    bank_convert_gcp_html = bank_sub.add_parser(
+        "convert-gcp-gail-html",
+        help="GCP GAIL 공개 HTML 연습문항을 private import-ready JSON으로 변환합니다.",
+    )
+    bank_convert_gcp_html.add_argument("source", type=Path)
+    bank_convert_gcp_html.add_argument("output", type=Path)
+    bank_convert_gcp_html.add_argument(
+        "--mark-active",
+        action="store_true",
+        help="검수 완료로 보고 exam-ready 후보가 되도록 active/current 상태로 저장합니다.",
+    )
+    bank_convert_gcp_html.add_argument("--checked-at", default="", help="--mark-active 사용 시 검수일. 예: 2026-07-05")
+    bank_convert_gcp_html.add_argument(
+        "--min-questions",
+        type=int,
+        default=1,
+        help="최소 몇 문항 이상 변환되어야 통과할지 정합니다. 기본값은 1입니다.",
+    )
+    bank_convert_gcp_html.set_defaults(func=cmd_bank_convert_gcp_gail_html)
+
     bank_inspect_info = bank_sub.add_parser(
         "inspect-info-processing",
         help="정보처리기사 private ZIP/PDF 후보를 점검합니다. 원문은 import하지 않습니다.",
@@ -184,6 +225,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="PDF 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 90입니다.",
     )
     bank_convert_info.set_defaults(func=cmd_bank_convert_info_processing)
+
+    bank_convert_info_patterns = bank_sub.add_parser(
+        "convert-info-processing-patterns",
+        help="정보처리기사 2026 해설형 private ZIP/PDF를 내부 CBT import-ready JSON으로 변환합니다.",
+    )
+    bank_convert_info_patterns.add_argument("source", type=Path)
+    bank_convert_info_patterns.add_argument("output", type=Path)
+    bank_convert_info_patterns.add_argument(
+        "--mark-active",
+        action="store_true",
+        help="검수 완료로 보고 exam-ready 후보가 되도록 active/current 상태로 저장합니다.",
+    )
+    bank_convert_info_patterns.add_argument("--checked-at", default="", help="--mark-active 사용 시 검수일. 예: 2026-07-05")
+    bank_convert_info_patterns.add_argument(
+        "--min-questions",
+        type=int,
+        default=1,
+        help="PDF 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 1입니다.",
+    )
+    bank_convert_info_patterns.set_defaults(func=cmd_bank_convert_info_processing_patterns)
 
     bank_inspect_kdata = bank_sub.add_parser(
         "inspect-kdata",
@@ -213,6 +274,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="파일 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 1입니다.",
     )
     bank_convert_kdata.set_defaults(func=cmd_bank_convert_kdata)
+
+    bank_inspect_adsp_html = bank_sub.add_parser(
+        "inspect-adsp-html",
+        help="ADSP private Tistory형 HTML 원천에서 문항/정답/해설 매핑 가능 수를 점검합니다.",
+    )
+    bank_inspect_adsp_html.add_argument("source", type=Path)
+    bank_inspect_adsp_html.set_defaults(func=cmd_bank_inspect_adsp_html)
+
+    bank_convert_adsp_html = bank_sub.add_parser(
+        "convert-adsp-html",
+        help="ADSP private Tistory형 HTML 원천을 내부 CBT import-ready JSON으로 변환합니다.",
+    )
+    bank_convert_adsp_html.add_argument("source", type=Path)
+    bank_convert_adsp_html.add_argument("output", type=Path)
+    bank_convert_adsp_html.add_argument(
+        "--mark-active",
+        action="store_true",
+        help="검수 완료로 보고 exam-ready 후보가 되도록 active/current 상태로 저장합니다.",
+    )
+    bank_convert_adsp_html.add_argument("--checked-at", default="", help="--mark-active 사용 시 검수일. 예: 2026-07-05")
+    bank_convert_adsp_html.add_argument(
+        "--min-questions",
+        type=int,
+        default=1,
+        help="파일 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 1입니다.",
+    )
+    bank_convert_adsp_html.set_defaults(func=cmd_bank_convert_adsp_html)
 
     bank_inspect_saa = bank_sub.add_parser(
         "inspect-chathuranga-saa",
@@ -462,6 +550,23 @@ def cmd_bank_promote_gcp_gail(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bank_inspect_gcp_gail_html(args: argparse.Namespace) -> int:
+    print(render_gcp_gail_html_inspect_report(inspect_gcp_gail_html_sources(args.source)))
+    return 0
+
+
+def cmd_bank_convert_gcp_gail_html(args: argparse.Namespace) -> int:
+    report = convert_gcp_gail_html_sources(
+        args.source,
+        args.output,
+        mark_active=bool(args.mark_active),
+        checked_at=args.checked_at,
+        min_questions=args.min_questions,
+    )
+    print(render_gcp_gail_html_convert_report(report))
+    return 0
+
+
 def cmd_bank_inspect_info_processing(args: argparse.Namespace) -> int:
     print(render_info_processing_archive_report(inspect_info_processing_archives(args.path)))
     return 0
@@ -476,6 +581,18 @@ def cmd_bank_convert_info_processing(args: argparse.Namespace) -> int:
         min_questions=args.min_questions,
     )
     print(render_info_processing_convert_report(report))
+    return 0
+
+
+def cmd_bank_convert_info_processing_patterns(args: argparse.Namespace) -> int:
+    report = convert_info_processing_pattern_archives(
+        args.source,
+        args.output,
+        mark_active=bool(args.mark_active),
+        checked_at=args.checked_at,
+        min_questions=args.min_questions,
+    )
+    print(render_info_processing_pattern_convert_report(report))
     return 0
 
 
@@ -495,6 +612,23 @@ def cmd_bank_convert_kdata(args: argparse.Namespace) -> int:
         min_questions=args.min_questions,
     )
     print(render_kdata_convert_report(report))
+    return 0
+
+
+def cmd_bank_inspect_adsp_html(args: argparse.Namespace) -> int:
+    print(render_adsp_html_inspect_report(inspect_adsp_html_sources(args.source)))
+    return 0
+
+
+def cmd_bank_convert_adsp_html(args: argparse.Namespace) -> int:
+    report = convert_adsp_html_sources(
+        args.source,
+        args.output,
+        mark_active=bool(args.mark_active),
+        checked_at=args.checked_at,
+        min_questions=args.min_questions,
+    )
+    print(render_adsp_html_convert_report(report))
     return 0
 
 

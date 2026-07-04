@@ -445,7 +445,8 @@ def audit_final_state(
             )
             for item in domain_targets
         )
-        all_question_gaps = gold_question_gap_rows(conn, exam["id"], sample_limit=None)
+        target_satisfied = final_report["ready"] and gold_questions >= target and gold_gap == 0
+        all_question_gaps = [] if target_satisfied else gold_question_gap_rows(conn, exam["id"], sample_limit=None)
         question_gap_samples = all_question_gaps[:sample_limit]
         issue_counts = Counter(
             code
@@ -453,7 +454,7 @@ def audit_final_state(
             for code in item["issue_codes"]
             if code not in {"not_gold"}
         )
-        if final_report["ready"] and gold_questions >= target:
+        if target_satisfied:
             status = "GREEN"
             next_action = "최종 사용 가능 상태입니다. 정규 CBT를 그대로 사용하면 됩니다."
         elif final_report["ready"]:
