@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import re
 import zipfile
-from io import BytesIO
+from contextlib import redirect_stderr
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
 
@@ -486,7 +487,8 @@ def inspect_pdf_entry(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> dict[s
     try:
         from pypdf import PdfReader
 
-        reader = PdfReader(BytesIO(archive.read(info)))
+        with redirect_stderr(StringIO()):
+            reader = PdfReader(BytesIO(archive.read(info)))
         result["page_count"] = len(reader.pages)
         sample_text = ""
         for page in reader.pages[:2]:

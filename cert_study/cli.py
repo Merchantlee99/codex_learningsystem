@@ -8,6 +8,7 @@ from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
 from .gold import audit_final_bank, export_gold_template, promote_gold_candidates, render_final_audit_report
 from .importer import import_bank_file
+from .enrichers.sqld_gold import enrich_sqld_gold_file
 from .importers.chathuranga_saa import (
     convert_chathuranga_saa_markdown,
     inspect_chathuranga_saa_markdown,
@@ -90,6 +91,21 @@ def build_parser() -> argparse.ArgumentParser:
     bank_export_gold.add_argument("--exam", required=True)
     bank_export_gold.add_argument("output", type=Path)
     bank_export_gold.set_defaults(func=cmd_bank_export_gold_template)
+
+    bank_enrich_sqld = bank_sub.add_parser(
+        "enrich-sqld-gold",
+        help="SQLD source-backed JSON을 세부 개념/정답근거/오답근거가 있는 gold JSON으로 보강합니다.",
+    )
+    bank_enrich_sqld.add_argument("source", type=Path)
+    bank_enrich_sqld.add_argument("output", type=Path)
+    bank_enrich_sqld.add_argument("--checked-at", required=True, help="검수일. 예: 2026-07-04")
+    bank_enrich_sqld.add_argument(
+        "--prefer-source-contains",
+        default="",
+        help="특정 원천 파일명이 포함된 문항을 먼저 배치합니다. 예: sqld_2025_58.html",
+    )
+    bank_enrich_sqld.add_argument("--limit", type=int, help="보강할 최대 문항 수입니다.")
+    bank_enrich_sqld.set_defaults(func=cmd_bank_enrich_sqld_gold)
 
     bank_convert_gcp = bank_sub.add_parser(
         "convert-gcp-gail",
@@ -340,6 +356,21 @@ def cmd_bank_export_gold_template(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
         result = export_gold_template(conn, args.exam, args.output)
     print(f"gold 검수 템플릿 생성 완료: {result['output']} ({result['questions']}문항)")
+    return 0
+
+
+def cmd_bank_enrich_sqld_gold(args: argparse.Namespace) -> int:
+    result = enrich_sqld_gold_file(
+        args.source,
+        args.output,
+        checked_at=args.checked_at,
+        prefer_source_contains=args.prefer_source_contains,
+        limit=args.limit,
+    )
+    print(
+        f"SQLD gold 보강 완료: {result['output']} "
+        f"문항 {result['questions']}개, 개념 {result['concepts']}개, 검수일 {result['checked_at']}"
+    )
     return 0
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import html
 import json
@@ -214,11 +215,20 @@ def pdf_text(data: bytes) -> str:
 
 
 def html_to_text(text: str) -> str:
+    extracted = "\n".join(
+        part
+        for part in (
+            highlighted_answer_section(text),
+            javascript_exam_data_text(text),
+        )
+        if part
+    )
     text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "\n", text)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
     text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", text)
     text = re.sub(r"(?s)<[^>]+>", " ", text)
-    return html.unescape(text)
+    visible = html.unescape(text)
+    return f"{visible}\n\n{extracted}" if extracted else visible
 
 
 def parse_kdata_text_questions(
@@ -244,7 +254,9 @@ def parse_kdata_text_questions(
         if parsed is None:
             continue
         parsed["question_text"] = clean_extracted_text(parsed["question_text"])
-        parsed["choices"] = [clean_extracted_text(choice) for choice in parsed["choices"]]
+        parsed_choices, inline_explanation = clean_choices_and_inline_explanation(parsed["choices"])
+        parsed["choices"] = parsed_choices
+        source_explanation = explanation_from_chunk(normalized_chunk)
         domain = domain_for_question_number(profile, number)
         answer = answers[number]
         questions.append(
@@ -257,7 +269,8 @@ def parse_kdata_text_questions(
                 "choices": parsed["choices"],
                 "answer": answer,
                 "answer_json": {"choices": [answer]},
-                "explanation": f"{profile.name} private 원천의 정답표 기준 정답은 {answer}번입니다. 세부 해설은 오답노트에서 보강합니다.",
+                "explanation": normalize_explanation_text(source_explanation or inline_explanation)
+                or f"{profile.name} private 원천의 정답표 기준 정답은 {answer}번입니다. 세부 해설은 오답노트에서 보강합니다.",
                 "difficulty": "medium",
                 "source_type": "licensed_private",
                 "source_ref": source_ref,
@@ -330,6 +343,171 @@ def parse_answer_map(text: str) -> dict[int, int]:
         if bare:
             answers[1] = normalize_answer_token(bare.group(1))
     return answers
+
+
+def highlighted_answer_section(raw_html: str) -> str:
+    chunks = split_raw_html_question_chunks(raw_html)
+    if not chunks:
+        return ""
+    answers: list[tuple[int, int]] = []
+    for number, chunk in chunks:
+        answer = highlighted_answer_in_chunk(chunk)
+        if answer is not None:
+            answers.append((number, answer))
+    if not answers:
+        return ""
+    lines = ["정답"]
+    lines.extend(f"{number}. {answer}" for number, answer in answers)
+    return "\n".join(lines)
+
+
+def split_raw_html_question_chunks(raw_html: str) -> list[tuple[int, str]]:
+    pattern = re.compile(r"(?:■\s*)?문제\s*(\d{1,3})[.)]?", re.I)
+    matches = list(pattern.finditer(raw_html))
+    chunks: list[tuple[int, str]] = []
+    for idx, match in enumerate(matches):
+        number = int(match.group(1))
+        if not 1 <= number <= 100:
+            continue
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw_html)
+        chunks.append((number, raw_html[match.start() : end]))
+    return chunks
+
+
+def highlighted_answer_in_chunk(chunk: str) -> int | None:
+    highlight_matches = re.finditer(
+        r"""(?is)<(?P<tag>span|b|strong)[^>]*(?:color\s*:\s*#?(?:ee2323|e74c3c|ff0000)|font-weight\s*:\s*bold)[^>]*>.*?</(?P=tag)>""",
+        chunk,
+    )
+    for match in highlight_matches:
+        text = html.unescape(re.sub(r"(?s)<[^>]+>", " ", match.group(0)))
+        token = re.search(r"[①②③④]|(?<!\d)[1-4](?!\d)", text)
+        if token:
+            return normalize_answer_token(token.group(0))
+    fallback = re.search(
+        r"""(?is)(?:color\s*:\s*#?(?:ee2323|e74c3c|ff0000)|font-weight\s*:\s*bold).*?([①②③④])""",
+        chunk,
+    )
+    if fallback:
+        return normalize_answer_token(fallback.group(1))
+    return None
+
+
+def javascript_exam_data_text(raw_html: str) -> str:
+    marker = re.search(r"\bconst\s+examData\s*=", raw_html)
+    if marker is None:
+        return ""
+    start = raw_html.find("[", marker.end())
+    if start == -1:
+        return ""
+    end = find_matching_bracket(raw_html, start, "[", "]")
+    if end == -1:
+        return ""
+    array_text = raw_html[start : end + 1]
+    try:
+        rows = parse_js_exam_data_array(array_text)
+    except ValueError:
+        return ""
+    if not rows:
+        return ""
+    answer_lines = ["정답"]
+    question_lines: list[str] = []
+    for idx, row in enumerate(rows, start=1):
+        question_text = clean_js_question_text(str(row["q"]), fallback_number=idx)
+        question_lines.append(f"{idx}. {question_text}")
+        if row.get("c"):
+            question_lines.append(str(row["c"]))
+        for choice in row["o"]:
+            question_lines.append(normalize_js_choice(str(choice)))
+        if row.get("h"):
+            question_lines.append(f"해설: {row['h']}")
+        answer_lines.append(f"{idx}. {int(row['a'])}")
+    return "\n".join(question_lines + [""] + answer_lines)
+
+
+def parse_js_exam_data_array(array_text: str) -> list[dict[str, Any]]:
+    pythonish = array_text
+    pythonish = re.sub(r"(?m)([{,]\s*)(q|o|a|h|c)\s*:", r"\1'\2':", pythonish)
+    pythonish = re.sub(r",\s*([}\]])", r"\1", pythonish)
+    try:
+        parsed = ast.literal_eval(pythonish)
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError("examData 배열을 파싱하지 못했습니다.") from exc
+    if not isinstance(parsed, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        question = item.get("q")
+        options = item.get("o")
+        answer = item.get("a")
+        if not isinstance(question, str) or not isinstance(options, list) or len(options) != 4:
+            continue
+        if not all(isinstance(option, str) for option in options):
+            continue
+        try:
+            answer_int = int(answer)
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= answer_int <= 4:
+            continue
+        rows.append({"q": question, "o": options, "a": answer_int, "h": str(item.get("h", "")), "c": str(item.get("c", ""))})
+    return rows
+
+
+def find_matching_bracket(text: str, start: int, opener: str, closer: str) -> int:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for idx in range(start, len(text)):
+        char = text[idx]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return idx
+    return -1
+
+
+def clean_js_question_text(value: str, *, fallback_number: int) -> str:
+    value = normalize_space(value)
+    return re.sub(r"^\s*\d{1,3}\s*[.)]\s*", "", value) or f"문제 {fallback_number}"
+
+
+def normalize_js_choice(value: str) -> str:
+    value = normalize_space(value)
+    match = re.match(r"^([①②③④])\s*(.*)$", value)
+    if match:
+        return f"{match.group(1)} {match.group(2)}".strip()
+    match = re.match(r"^([1-4A-Da-d])\s*[.)]\s*(.*)$", value)
+    if match:
+        marker = {"1": "①", "2": "②", "3": "③", "4": "④", "A": "①", "B": "②", "C": "③", "D": "④"}[
+            match.group(1).upper()
+        ]
+        return f"{marker} {match.group(2)}".strip()
+    return value
+
+
+def explanation_from_chunk(chunk: str) -> str:
+    match = re.search(r"(?:해설|풀이)\s*[:：]\s*(.+)$", chunk, re.S)
+    if match is None:
+        return ""
+    explanation = clean_extracted_text(match.group(1))
+    explanation = re.split(r"\s*정답\s*$", explanation, maxsplit=1)[0].strip()
+    return explanation
 
 
 def answer_section(text: str) -> str:
@@ -407,6 +585,26 @@ def clean_extracted_text(text: str) -> str:
     cleaned = re.sub(r"\s*정\s*답\s*확\s*인\s*[🌼⭐★]*", " ", cleaned)
     cleaned = re.sub(r"\s*(해설|풀이|답안)\s*(보기|확인)\s*[🌼⭐★]*", " ", cleaned)
     cleaned = cleaned.replace("🌼", " ")
+    return normalize_space(cleaned)
+
+
+def clean_choices_and_inline_explanation(choices: list[str]) -> tuple[list[str], str]:
+    cleaned_choices: list[str] = []
+    inline_explanations: list[str] = []
+    for choice in choices:
+        cleaned = clean_extracted_text(choice)
+        match = re.search(r"\s*(?:해설|풀이)\s*[:：]\s*", cleaned)
+        if match:
+            inline_explanations.append(cleaned[match.end() :])
+            cleaned = cleaned[: match.start()]
+        cleaned_choices.append(normalize_space(cleaned))
+    return cleaned_choices, normalize_explanation_text(" ".join(inline_explanations))
+
+
+def normalize_explanation_text(text: str) -> str:
+    cleaned = clean_extracted_text(text)
+    cleaned = re.sub(r"^(?:해설|풀이)\s*[:：]\s*", "", cleaned)
+    cleaned = re.sub(r"^(?:해설|풀이)\s*[:：]\s*", "", cleaned)
     return normalize_space(cleaned)
 
 

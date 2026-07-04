@@ -112,6 +112,27 @@ questions:
 - `correct_rationale`, `distractor_rationales`, `review_concepts`, `official_scope_refs`가 채워졌는지
 - `python3 -m cert_study audit final --exam <EXAM_ID>`가 통과하는지
 
+## 실제 소스 기반 보강 흐름
+
+실제 문제 소스를 붙일 때도 공개 repo에 문제를 넣지 않습니다. 원천 파일은 `private_banks/raw_sources/<exam>/`에 두고, 변환 결과도 `private_banks/import_ready/`와 `private_banks/gold_banks/` 안에서만 다룹니다.
+
+1. `inspect-*` 명령으로 원천 파일에서 몇 문항이 안정적으로 파싱되는지 확인합니다.
+2. `convert-*` 명령으로 source-backed JSON을 만듭니다.
+3. 정답, 선택지, 해설, 지문 컨텍스트가 분리돼 있는 소스는 과목별 보강기를 둡니다.
+4. `gold_status=gold` 후보를 import한 뒤 `audit final`을 통과해야 `exam-ready`로 풉니다.
+
+SQLD는 전용 보강기를 둔 상태입니다.
+
+```bash
+python3 -m cert_study bank inspect-kdata --exam SQLD private_banks/raw_sources/sqld
+python3 -m cert_study bank convert-kdata --exam SQLD private_banks/raw_sources/sqld private_banks/import_ready/sqld/source_backed.json --mark-active --checked-at 2026-07-04
+python3 -m cert_study bank enrich-sqld-gold private_banks/import_ready/sqld/source_backed.json private_banks/gold_banks/sqld_gold.json --checked-at 2026-07-04 --prefer-source-contains sqld_2025_58.html --limit 50
+python3 -m cert_study bank import private_banks/gold_banks/sqld_gold.json --private
+python3 -m cert_study audit final --exam SQLD
+```
+
+이 흐름에서 중요한 건 문항 수가 아니라 독립적으로 풀 수 있는 지문입니다. SQL 코드나 표가 HTML의 별도 필드에 들어 있는 경우, 그 컨텍스트까지 지문에 합쳐야 합니다. 정답 해설에만 조건이 있고 문제 지문에는 조건이 없으면 `exam-ready`로 보지 않습니다.
+
 ## 출제 우선순위
 
 문제은행이 커지면 같은 문제를 반복하지 않는 것이 중요합니다.

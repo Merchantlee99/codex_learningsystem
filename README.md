@@ -133,6 +133,18 @@ python3 -m cert_study audit final --exam SQLD
 
 `audit final`에서 부족한 해설, 임시 개념 매핑, 공식 출제범위 참조 누락, 영역별 문항 수 부족이 나오면 아직 최종 학습용으로 보지 않습니다.
 
+SQLD처럼 로컬에 실제 출처 기반 HTML/PDF를 모아둔 경우에는 아래 흐름으로 import-ready 파일을 만들고, 검수 가능한 gold 파일로 분리합니다. 이 파일들은 모두 `private_banks/` 아래에 두며 공개 repo에는 올라가지 않습니다.
+
+```bash
+python3 -m cert_study bank inspect-kdata --exam SQLD private_banks/raw_sources/sqld
+python3 -m cert_study bank convert-kdata --exam SQLD private_banks/raw_sources/sqld private_banks/import_ready/sqld/source_backed.json --mark-active --checked-at 2026-07-04
+python3 -m cert_study bank enrich-sqld-gold private_banks/import_ready/sqld/source_backed.json private_banks/gold_banks/sqld_gold.json --checked-at 2026-07-04 --prefer-source-contains sqld_2025_58.html --limit 50
+python3 -m cert_study bank import private_banks/gold_banks/sqld_gold.json --private
+python3 -m cert_study audit final --exam SQLD
+```
+
+`enrich-sqld-gold`는 SQLD 전용 보강기입니다. HTML 안에 문항/선택지/정답/해설/SQL 코드가 분리돼 있을 때 이를 CBT 지문으로 합치고, 세부 개념과 정답/오답 근거를 채워 `exam-ready` 후보를 만듭니다. 다른 과목은 같은 기준을 만족하는 별도 보강기나 수동 gold JSON을 만들어야 합니다.
+
 ## Codex에서 쓰는 흐름
 
 ```text

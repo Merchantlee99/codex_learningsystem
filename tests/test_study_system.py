@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 
 from cert_study.db import connect, initialize
+from cert_study.enrichers.sqld_gold import enrich_sqld_gold_payload
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
 from cert_study.importer import import_bank_file
 from cert_study.importers.chathuranga_saa import convert_chathuranga_saa_markdown, inspect_chathuranga_saa_markdown
@@ -932,6 +933,204 @@ D. 트랜잭션을 취소한다.
         self.assertEqual(row["answer"], 1)
         self.assertNotIn("정답확인", row["question_text"])
         self.assertNotIn("🌼", row["question_text"])
+
+    def test_kdata_text_converter_reads_tistory_highlighted_answer(self) -> None:
+        source = Path(self.tmp.name) / "sqld_highlighted.html"
+        source.write_text(
+            """
+<p>■ 문제 1. NULL에 대한 설명으로 옳은 것은?</p>
+<p>① NULL은 0과 같은 의미다.</p>
+<p><span style="color: #ee2323;"><b>② NULL은 집계함수에서 제외된다.</b></span></p>
+<p>③ NULL = NULL은 TRUE이다.</p>
+<p>④ NULL은 빈 문자열과 항상 같다.</p>
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "sqld_highlighted.json"
+
+        report = convert_kdata_text_sources(source, output, exam_id="SQLD")
+        import_bank_file(self.conn, output, private=True)
+
+        self.assertEqual(report["converted_questions"], 1)
+        row = self.conn.execute("SELECT answer FROM questions WHERE id LIKE 'SQLD_SRC_%'").fetchone()
+        self.assertEqual(row["answer"], 2)
+
+    def test_kdata_text_converter_reads_tistory_javascript_exam_data(self) -> None:
+        source = Path(self.tmp.name) / "sqld_exam_data.html"
+        source.write_text(
+            """
+<script>
+const examData = [
+  { q: "1. 다음 중 키 엔터티에 해당하지 않는 것은?", o: ["① 사원", "② 프로젝트", "③ 회사", "④ 고객"], a: 2, h: "해설: 프로젝트는 보통 업무 과정에서 발생하는 중심 엔터티로 본다." },
+  { q: "2. 다음 SQL 실행 결과로 옳은 것은?", o: ["① 0", "② 1", "③ 2", "④ 3"], c: "SELECT COUNT(*) FROM T WHERE C IS NOT NULL;", a: 2, h: "해설: COUNT(컬럼) 등 집계 함수는 NULL을 제외한다." }
+];
+</script>
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "sqld_exam_data.json"
+
+        report = convert_kdata_text_sources(source, output, exam_id="SQLD")
+        import_result = import_bank_file(self.conn, output, private=True)
+
+        self.assertEqual(report["converted_questions"], 2)
+        self.assertEqual(import_result["questions"], 2)
+        rows = self.conn.execute(
+            "SELECT answer, question_text, choices_json, explanation FROM questions WHERE id LIKE 'SQLD_SRC_%' ORDER BY id"
+        ).fetchall()
+        self.assertEqual([row["answer"] for row in rows], [2, 2])
+        self.assertIn("프로젝트", rows[0]["explanation"])
+        self.assertEqual(json.loads(rows[0]["choices_json"])[3], "고객")
+        self.assertNotIn("해설", json.loads(rows[0]["choices_json"])[3])
+        self.assertIn("SELECT COUNT(*)", rows[1]["question_text"])
+
+    def test_sqld_gold_enricher_adds_granular_concepts_and_rationales(self) -> None:
+        payload = {
+            "exam": {
+                "id": "SQLD",
+                "name": "SQLD",
+                "official_question_count": 1,
+                "official_duration_minutes": 90,
+                "pass_score": 60,
+                "domain_min_score": 40,
+            },
+            "domains": [{"id": "SQLD-D2", "name": "SQL 기본 및 활용", "official_weight": 100, "official_question_count": 1}],
+            "concepts": [{"id": "SQLD-SRC-C-D2", "domain_id": "SQLD-D2", "name": "SQL 기본 및 활용 source-backed", "review_note": "임시 개념"}],
+            "questions": [
+                {
+                    "id": "SQLD-SRC-TEST-Q001",
+                    "domain_id": "SQLD-D2",
+                    "concept_id": "SQLD-SRC-C-D2",
+                    "question_type": "single_choice",
+                    "question_text": "NULL 처리 설명으로 옳은 것은?",
+                    "choices": ["NULL은 0이다", "NULL은 집계함수에서 제외된다", "NULL = NULL은 TRUE다", "NULL은 모든 값보다 크다"],
+                    "answer": 2,
+                    "answer_json": {"choices": [2]},
+                    "explanation": "해설: COUNT(컬럼) 등 집계 함수는 NULL을 제외한다.",
+                    "difficulty": "medium",
+                    "source_type": "licensed_private",
+                    "source_ref": "unit-test",
+                    "source_license": "private-study-use",
+                    "source_tier": "licensed_private",
+                    "storage_policy": "private_only",
+                    "validity_status": "current",
+                    "quality_status": "active",
+                    "scope_version": "2026",
+                    "official_checked_at": "2026-07-04",
+                    "quality_notes": "unit test",
+                    "provenance": {"source_ref": "unit-test"},
+                },
+                {
+                    "id": "SQLD-SRC-TEST-Q002",
+                    "domain_id": "SQLD-D2",
+                    "concept_id": "SQLD-SRC-C-D2",
+                    "question_type": "single_choice",
+                    "question_text": "다음 DCL 명령어 수행 후 SELECT 권한을 유지하는 유저를 모두 고르시오.",
+                    "choices": ["DBA, U1", "DBA", "DBA, U1, U3", "DBA, U1, U2, U3"],
+                    "answer": 4,
+                    "answer_json": {"choices": [4]},
+                    "explanation": "REVOKE DELETE는 DELETE 권한만 회수하므로 SELECT 권한은 유지된다.",
+                    "difficulty": "medium",
+                    "source_type": "licensed_private",
+                    "source_ref": "unit-test",
+                    "source_license": "private-study-use",
+                    "source_tier": "licensed_private",
+                    "storage_policy": "private_only",
+                    "validity_status": "current",
+                    "quality_status": "active",
+                    "scope_version": "2026",
+                    "official_checked_at": "2026-07-04",
+                    "quality_notes": "unit test",
+                    "provenance": {"source_ref": "unit-test"},
+                },
+                {
+                    "id": "SQLD-SRC-TEST-Q003",
+                    "domain_id": "SQLD-D2",
+                    "concept_id": "SQLD-SRC-C-D2",
+                    "question_type": "single_choice",
+                    "question_text": "SELECT COUNT(*) 결과로 옳은 것은?",
+                    "choices": ["0", "1", "2", "3"],
+                    "answer": 2,
+                    "answer_json": {"choices": [2]},
+                    "explanation": "조건을 만족하는 행이 하나라서 COUNT 결과는 1이다.",
+                    "difficulty": "medium",
+                    "source_type": "licensed_private",
+                    "source_ref": "unit-test",
+                    "source_license": "private-study-use",
+                    "source_tier": "licensed_private",
+                    "storage_policy": "private_only",
+                    "validity_status": "current",
+                    "quality_status": "active",
+                    "scope_version": "2026",
+                    "official_checked_at": "2026-07-04",
+                    "quality_notes": "unit test",
+                    "provenance": {"source_ref": "unit-test"},
+                },
+            ],
+        }
+
+        enriched = enrich_sqld_gold_payload(payload, checked_at="2026-07-04")
+        question = enriched["questions"][0]
+
+        self.assertEqual(len(enriched["questions"]), 3)
+        self.assertEqual(question["concept_id"], "SQLD-C-NULL")
+        self.assertEqual(question["gold_status"], "gold")
+        self.assertEqual(question["gold_checked_at"], "2026-07-04")
+        self.assertIn("correct_rationale", question)
+        self.assertEqual(set(question["distractor_rationales"]), {"1", "3", "4"})
+        self.assertEqual(question["review_concepts"], ["NULL 처리"])
+        self.assertEqual(question["official_scope_refs"], ["SQLD-D2-SQL기본-NULL"])
+
+    def test_sqld_gold_enricher_preserves_official_domain_counts_when_limited(self) -> None:
+        def row(question_id: str, domain_id: str, text: str) -> dict[str, object]:
+            return {
+                "id": question_id,
+                "domain_id": domain_id,
+                "concept_id": f"SQLD-SRC-C-{domain_id[-2:]}",
+                "question_type": "single_choice",
+                "question_text": text,
+                "choices": ["0", "1", "2", "3"],
+                "answer": 2,
+                "answer_json": {"choices": [2]},
+                "explanation": "조건을 만족하는 행이 하나라서 COUNT 결과는 1이다.",
+                "difficulty": "medium",
+                "source_type": "licensed_private",
+                "source_ref": "unit-test",
+                "source_license": "private-study-use",
+                "source_tier": "licensed_private",
+                "storage_policy": "private_only",
+                "validity_status": "current",
+                "quality_status": "active",
+                "scope_version": "2026",
+                "official_checked_at": "2026-07-04",
+                "quality_notes": "unit test",
+                "provenance": {"source_ref": "unit-test"},
+            }
+
+        payload = {
+            "exam": {
+                "id": "SQLD",
+                "name": "SQLD",
+                "official_question_count": 2,
+                "official_duration_minutes": 90,
+                "pass_score": 60,
+                "domain_min_score": 40,
+            },
+            "domains": [
+                {"id": "SQLD-D1", "name": "데이터 모델링의 이해", "official_weight": 50, "official_question_count": 1},
+                {"id": "SQLD-D2", "name": "SQL 기본 및 활용", "official_weight": 50, "official_question_count": 1},
+            ],
+            "concepts": [],
+            "questions": [
+                row("SQLD-SRC-D1-Q001", "SQLD-D1", "엔터티 설명으로 옳은 것은?"),
+                row("SQLD-SRC-D1-Q002", "SQLD-D1", "속성 설명으로 옳은 것은?"),
+                row("SQLD-SRC-D2-Q001", "SQLD-D2", "SELECT COUNT(*) 결과로 옳은 것은?"),
+            ],
+        }
+
+        enriched = enrich_sqld_gold_payload(payload, checked_at="2026-07-04", limit=2)
+
+        self.assertEqual([question["domain_id"] for question in enriched["questions"]], ["SQLD-D1", "SQLD-D2"])
 
     def test_chathuranga_saa_markdown_converter_imports_single_choice_questions(self) -> None:
         source_dir = Path(self.tmp.name) / "chathuranga"
